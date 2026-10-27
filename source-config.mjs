@@ -192,7 +192,7 @@ export function resolveRequestParameters(provider, context = {}) {
 }
 
 export function getRequestContext(state, provider, extra = {}) {
-  const keyword = String(extra.keyword ?? provider.testKeyword ?? '').trim();
+  const keyword = String(extra.keyword ?? '').trim();
   const records = Array.isArray(state.records) ? state.records : [];
   const record = keyword ? records.find(item => item.creditCode === keyword || item.enterpriseName === keyword) : records[0];
   return {
