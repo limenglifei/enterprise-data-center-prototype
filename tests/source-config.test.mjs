@@ -97,14 +97,18 @@ test('parameter and return field validation catches duplicate names, missing req
   assert.match(validateApiSourceConfig(provider).errors.join(' '), /必填返回字段：creditCode/);
 });
 
-test('request context uses test keywords or existing center entities without a managed enterprise list', () => {
+test('request context ignores removed test keyword drafts and uses explicit keywords or existing center entities', () => {
   const state = upgradeSourceState(createInitialState());
   const provider = state.providers[0];
   let context = getRequestContext(state, provider);
   assert.equal(context.keyword, state.records[0].creditCode);
   provider.testKeyword = state.records[1].enterpriseName;
   context = getRequestContext(state, provider, { page: 3 });
-  assert.equal(context.creditCode, state.records[1].creditCode); assert.equal(context.page, 3);
+  assert.equal(context.keyword, state.records[0].creditCode);
+  assert.equal(context.creditCode, state.records[0].creditCode); assert.equal(context.page, 3);
+  context = getRequestContext(state, provider, { keyword: state.records[1].enterpriseName });
+  assert.equal(context.keyword, state.records[1].enterpriseName);
+  assert.equal(context.creditCode, state.records[1].creditCode);
   context = getRequestContext(state, provider, { keyword: '完全自定义关键字' });
   assert.equal(context.keyword, '完全自定义关键字'); assert.equal(context.creditCode, '');
 });
