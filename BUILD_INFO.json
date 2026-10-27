@@ -1,0 +1,7 @@
+{
+  "target": "github-pages",
+  "storage": "IndexedDB",
+  "serverApi": false,
+  "source": "public/prototype",
+  "builtAt": "2026-10-27T06:38:04.211Z"
+}

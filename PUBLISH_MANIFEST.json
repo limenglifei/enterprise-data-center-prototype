@@ -1,0 +1,109 @@
+{
+  "source_commit": "f7812c8333bbf0f710072341be56d88a2c65c1dc",
+  "repository": "https://github.com/limenglifei/enterprise-data-center-prototype",
+  "mode": "GitHub Pages public static demo; IndexedDB browser persistence; vendor backend disabled",
+  "files": [
+    {
+      "path": ".nojekyll",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "bytes": 0
+    },
+    {
+      "path": "app.js",
+      "sha256": "6ea2f38a763b1c82e1317481a31878c860c088d374a9f339b2091535600bf0cd",
+      "git_blob": "22bfcab3c33c24d258ec8660e98056bf4ffaf3f3",
+      "bytes": 47195
+    },
+    {
+      "path": "BUILD_INFO.json",
+      "sha256": "2f1f4c170775fe9eb54419ea78767742716d62ccaf141891bb1f68c694eb6bdc",
+      "git_blob": "37b2837e22fbe5eaae8a1ae51df588636dd4e5cd",
+      "bytes": 152
+    },
+    {
+      "path": "core.mjs",
+      "sha256": "e63a70cf7a8fd9ee233daef3dbe1eb92e90ed72d04d8bde533f6998d118d747d",
+      "git_blob": "31217ff2edd3ab3d586860fd7d42222513948625",
+      "bytes": 23356
+    },
+    {
+      "path": "demo-data.mjs",
+      "sha256": "8fad73d23a26af31f2cbab9f367b0dd31d2857421d559753b94d14a3eec2c51c",
+      "git_blob": "c6637f153e749e5f1e239ac56366a18c713bf320",
+      "bytes": 7831
+    },
+    {
+      "path": "file-reader.mjs",
+      "sha256": "48c056500316e3c7f07baf45d331082536e4364203972da855c446c62dff78d5",
+      "git_blob": "552d09aba18603b15742c8bb8c641a51a88aa408",
+      "bytes": 4614
+    },
+    {
+      "path": "fixtures/file-v1.json",
+      "sha256": "92b4987965f10f161b5456f7c8261c19d4aaefa33a20a874774bfb098426d277",
+      "git_blob": "f98d2641235ea9d3cc65650f4a5a0e48721480b3",
+      "bytes": 8694
+    },
+    {
+      "path": "fixtures/file-v2.json",
+      "sha256": "93b209ccce2e04256301fa6dbac0e620bbaeeae5cbc82c89c08a7789b5cb905d",
+      "git_blob": "a07bf43ee4a3caff21415936f5c17694fb29ee6a",
+      "bytes": 9065
+    },
+    {
+      "path": "fixtures/qcc-v1.json",
+      "sha256": "c973758e325bc5e400a9868683348330c43a9eb9910988a5209afa55648e58e3",
+      "git_blob": "7a84ddf05cceeb3e607920f452d69f2b427bcb02",
+      "bytes": 16487
+    },
+    {
+      "path": "fixtures/qcc-v2.json",
+      "sha256": "afca2f8e633a451a08de94fc05221f4e2fd72823f73ad2241c9c1367521080ab",
+      "git_blob": "920080126b19e562921fa9537259e2941abc64cd",
+      "bytes": 17157
+    },
+    {
+      "path": "fixtures/tyc-v1.json",
+      "sha256": "abf095af5e7c53ab37ce5ae94b53f38259e07f47bbd151b4c46bc97eb2aa7ada",
+      "git_blob": "32193bb7973bfadf3d969cccf77ff279ec85ddaf",
+      "bytes": 17066
+    },
+    {
+      "path": "fixtures/tyc-v2.json",
+      "sha256": "4110a7f9853492def6dc0280677d807ac02826375ef3f767bdab4ec315d0480a",
+      "git_blob": "56036edfa2ad614924d8d70b691329804962d2ea",
+      "bytes": 18444
+    },
+    {
+      "path": "index.html",
+      "sha256": "4e3479220d7e2b782f8702c9b2da5afa215202e78659ed46d69167de1a2e2cd1",
+      "git_blob": "02a6b7a5ff889d04be115c37b2a33e66fdf9a9fd",
+      "bytes": 5878
+    },
+    {
+      "path": "pages-adapter.mjs",
+      "sha256": "cbdbffaa735090cb0873aa73ddc0aebb73c04ecdd6dd7b9534cb7ae04dce2371",
+      "git_blob": "ee867b295c3f6aa4e204884ae9f0537ef5d1ccf5",
+      "bytes": 4695
+    },
+    {
+      "path": "pages-bootstrap.mjs",
+      "sha256": "c09661efd330141e4226de6df467e40b5ccb903982ebc39762dd078d88cb9e72",
+      "git_blob": "88e684c4f691c5b5c716b970ead1c7c496b40488",
+      "bytes": 143
+    },
+    {
+      "path": "script-worker.js",
+      "sha256": "2b164787f0705754da4623cdc869204d47e39321f977cfcd07e29d8e4fad1452",
+      "git_blob": "fd3c7efeaa09b86816018679f60247c87f728b6b",
+      "bytes": 570
+    },
+    {
+      "path": "styles.css",
+      "sha256": "6ba0216381fe2cf16a832696b30b64858a30be37a80c87adc02d11b52d54533d",
+      "git_blob": "a57062482ecb16d2dce73c57faf951c587ee174b",
+      "bytes": 54003
+    }
+  ]
+}
