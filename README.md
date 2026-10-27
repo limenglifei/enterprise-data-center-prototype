@@ -23,6 +23,8 @@ node scripts/build-github-pages.mjs
 
 输出目录为 `pages-dist/`，不需要安装项目依赖即可构建。将该目录内容发布至 GitHub Pages 的 `gh-pages` 分支根目录，并将 Pages 来源设为 `gh-pages`、`/`。目录包含 `.nojekyll`，支持仓库子路径访问；不要直接将需要 `/api/state` 的完整后端页面作为静态站点发布。
 
+页面使用 `assets/<内容版本>/` 加载同一版本的样式、模块、示例数据和加工 Worker，避免浏览器混用旧脚本。发布时保留已上线的旧版本资产目录，使缓存中的旧页面仍可加载；GitHub Git Data API 发布应以前一棵发布树作为 `base_tree`，覆盖当前构建文件。工作空间仍按页面路径保存，资源版本变化不会清空浏览器数据。
+
 源码保存在 `main`，公开页面产物通过 GitHub Git Data API 发布至 `gh-pages`。发布目录中的 `PUBLISH_MANIFEST.json` 记录来源提交和文件哈希，便于核对源码与演示版本。
 
 ## 1. 功能范围
