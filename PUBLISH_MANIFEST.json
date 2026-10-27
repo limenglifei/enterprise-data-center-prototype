@@ -1,5 +1,5 @@
 {
-  "source_commit": "80deb0220dc4ea319d03c31e4fb8adacb9b3e1c9",
+  "source_commit": "c8eb0a2083cac77af279523f4df18b81216708cd",
   "repository": "https://github.com/limenglifei/enterprise-data-center-prototype",
   "mode": "GitHub Pages public static demo; IndexedDB browser persistence; vendor backend disabled",
   "files": [
@@ -11,9 +11,9 @@
     },
     {
       "path": "api-services.mjs",
-      "sha256": "b1d84464e0ba36c6ae87f812ccec769d0354651705ac649c37ded924d6b60b22",
-      "git_blob": "1fdad96d0e2c447111c9f896864a82a412b59691",
-      "bytes": 21375
+      "sha256": "2a91c873177bea69d74f3ea6f9387a30138ca50f801005193493a6ec2c5bb9c6",
+      "git_blob": "bb35482133678d1984926da1d1674b78cd7094e8",
+      "bytes": 23594
     },
     {
       "path": "app.js",
@@ -23,8 +23,8 @@
     },
     {
       "path": "BUILD_INFO.json",
-      "sha256": "d5e819d1dafb8b0893a1b2260ed022269dffc8ccb3e292d05a3abe4b2011003c",
-      "git_blob": "c75fcdc5a233c44e24d09ff392adaa17977db29e",
+      "sha256": "23424d6e4feb0309822a628cff75b168e3f986ccefb9ba2e648c80290740bee9",
+      "git_blob": "9d732e960815247d6bc6534167bb2e6fce5f2e5a",
       "bytes": 152
     },
     {
