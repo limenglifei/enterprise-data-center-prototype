@@ -1,5 +1,5 @@
 {
-  "source_commit": "f7812c8333bbf0f710072341be56d88a2c65c1dc",
+  "source_commit": "4dd44fd972269717fe13146d672f8124d6cd97ff",
   "repository": "https://github.com/limenglifei/enterprise-data-center-prototype",
   "mode": "GitHub Pages public static demo; IndexedDB browser persistence; vendor backend disabled",
   "files": [
@@ -10,15 +10,21 @@
       "bytes": 0
     },
     {
+      "path": "api-services.mjs",
+      "sha256": "09b7991297ca9ee46ebfa6911879a1ddbfbaa36311a8a71c3d6fc2b472386472",
+      "git_blob": "d903ad8931b93197f58e7d77d9eb1968b36e4bce",
+      "bytes": 17166
+    },
+    {
       "path": "app.js",
-      "sha256": "6ea2f38a763b1c82e1317481a31878c860c088d374a9f339b2091535600bf0cd",
-      "git_blob": "22bfcab3c33c24d258ec8660e98056bf4ffaf3f3",
-      "bytes": 47195
+      "sha256": "1e6ca49fa48cecdb94829a9667e7e7124fbcef45c4d5d275c3cac51849e5d016",
+      "git_blob": "f53f5c1057a264bf8c8156935696b06b0b817aa4",
+      "bytes": 58805
     },
     {
       "path": "BUILD_INFO.json",
-      "sha256": "2f1f4c170775fe9eb54419ea78767742716d62ccaf141891bb1f68c694eb6bdc",
-      "git_blob": "37b2837e22fbe5eaae8a1ae51df588636dd4e5cd",
+      "sha256": "9b5336801d9b312e268b50990916e1d67f74d3c2232f3269dc10a91574007c2a",
+      "git_blob": "4f8080745352b433ada4493326110fb9bf95a8e5",
       "bytes": 152
     },
     {
@@ -77,9 +83,9 @@
     },
     {
       "path": "index.html",
-      "sha256": "4e3479220d7e2b782f8702c9b2da5afa215202e78659ed46d69167de1a2e2cd1",
-      "git_blob": "02a6b7a5ff889d04be115c37b2a33e66fdf9a9fd",
-      "bytes": 5878
+      "sha256": "8e72d8f9051a372190667da9dc2930eed345a5d07c0f59a5b6f5778c8fefb067",
+      "git_blob": "baa31b9dce842d780b52e866cb732c1f7d6f4254",
+      "bytes": 5897
     },
     {
       "path": "pages-adapter.mjs",
@@ -100,10 +106,22 @@
       "bytes": 570
     },
     {
+      "path": "source-config.mjs",
+      "sha256": "1722a7f80fcb441ba82a0927c479ea15369ccc0060486d05eaa379d0f9919dbb",
+      "git_blob": "1f4e9ecfa0a196f7f5a9156e94fbfe43422607e1",
+      "bytes": 14767
+    },
+    {
       "path": "styles.css",
-      "sha256": "6ba0216381fe2cf16a832696b30b64858a30be37a80c87adc02d11b52d54533d",
-      "git_blob": "a57062482ecb16d2dce73c57faf951c587ee174b",
-      "bytes": 54003
+      "sha256": "82f89a32f71b4ba400923b47ea4b804c9db9a70b3b1d6a10b6d877eb980e0693",
+      "git_blob": "12d1dc47fb882f84174958e0f5373f31a7818cef",
+      "bytes": 69760
+    },
+    {
+      "path": "upload-history.mjs",
+      "sha256": "99bc240f5eab1f319400558c4286763919f83335b773b5065747ec91af688b43",
+      "git_blob": "1dd2567324a7a113b92ab4884bbdf1b39e16eac2",
+      "bytes": 6979
     }
   ]
 }
