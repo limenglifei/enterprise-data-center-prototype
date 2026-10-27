@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {stripTypeScriptTypes} from 'node:module';
 import {createInitialState} from '../public/prototype/core.mjs';
-import {upgradeApiServices} from '../public/prototype/api-services.mjs';
+import {upgradeApiServices,createApiService} from '../public/prototype/api-services.mjs';
 
 // Exercise the real route helper with an in-memory, read-only D1 double.
 const state=createInitialState();upgradeApiServices(state);for(const s of state.apiServices)s.status='published';
@@ -46,4 +46,19 @@ test('external search validates JSON type, body bound and returns paginated matc
     {headers:{'Content-Type':'application/json'},body:'{"pageSize":101}'},
   ])assert.equal((await handleEnterpriseService(request(path,{method:'POST',...options}),'search')).status,400);
   assert.equal((await handleEnterpriseService(request(path,{method:'POST',headers:{'Content-Type':'application/json'},body:' '.repeat(16385)}),'search')).status,413);
+});
+test('custom service IDs dispatch by kind, require publication and enforce the derived method',async()=>{
+  const query=createApiService(state,{id:'partner-query',kind:'query',name:'合作方查询',description:'合作方工商数据',version:'1.0.0'});
+  const search=createApiService(state,{id:'partner-search',kind:'search',name:'合作方筛选',description:'合作方企业筛选',version:'1.0.0'});
+  const queryPath='/api/v1/services/partner-query?keyword='+encodeURIComponent(state.records[0].creditCode);
+  assert.equal((await handleEnterpriseService(request(queryPath),query.id)).status,403);
+  query.status='published';search.status='published';
+  const queried=await handleEnterpriseService(request(queryPath),query.id);assert.equal(queried.status,200);assert.equal((await queried.json()).data.record.creditCode,state.records[0].creditCode);
+  const searchPath='/api/v1/services/partner-search';
+  const filtered=await handleEnterpriseService(request(searchPath,{method:'POST',headers:{'Content-Type':'application/json'},body:'{"pageSize":1}'}),search.id);assert.equal(filtered.status,200);assert.equal((await filtered.json()).data.records.length,1);
+  for(const [path,id,method,expected] of [[queryPath,query.id,'POST','GET'],[searchPath,search.id,'GET','POST']]){
+    const result=await handleEnterpriseService(request(path,{method}),id);assert.equal(result.status,405);assert.equal(result.headers.get('allow'),expected);
+  }
+  query.status='disabled';assert.equal((await handleEnterpriseService(request(queryPath),query.id)).status,403);
+  assert.equal((await handleEnterpriseService(request('/api/v1/services/missing'),'missing')).status,404);
 });
