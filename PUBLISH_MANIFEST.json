@@ -1,5 +1,5 @@
 {
-  "source_commit": "4dd44fd972269717fe13146d672f8124d6cd97ff",
+  "source_commit": "80deb0220dc4ea319d03c31e4fb8adacb9b3e1c9",
   "repository": "https://github.com/limenglifei/enterprise-data-center-prototype",
   "mode": "GitHub Pages public static demo; IndexedDB browser persistence; vendor backend disabled",
   "files": [
@@ -11,20 +11,20 @@
     },
     {
       "path": "api-services.mjs",
-      "sha256": "09b7991297ca9ee46ebfa6911879a1ddbfbaa36311a8a71c3d6fc2b472386472",
-      "git_blob": "d903ad8931b93197f58e7d77d9eb1968b36e4bce",
-      "bytes": 17166
+      "sha256": "b1d84464e0ba36c6ae87f812ccec769d0354651705ac649c37ded924d6b60b22",
+      "git_blob": "1fdad96d0e2c447111c9f896864a82a412b59691",
+      "bytes": 21375
     },
     {
       "path": "app.js",
-      "sha256": "1e6ca49fa48cecdb94829a9667e7e7124fbcef45c4d5d275c3cac51849e5d016",
-      "git_blob": "f53f5c1057a264bf8c8156935696b06b0b817aa4",
-      "bytes": 58805
+      "sha256": "acc65293cef6ed3ad23f79d9473af4b77e5aeef5861af0534b2793b249f9f828",
+      "git_blob": "91752563d776439b6be739867e9f34b5b4477dfd",
+      "bytes": 57337
     },
     {
       "path": "BUILD_INFO.json",
-      "sha256": "9b5336801d9b312e268b50990916e1d67f74d3c2232f3269dc10a91574007c2a",
-      "git_blob": "4f8080745352b433ada4493326110fb9bf95a8e5",
+      "sha256": "d5e819d1dafb8b0893a1b2260ed022269dffc8ccb3e292d05a3abe4b2011003c",
+      "git_blob": "c75fcdc5a233c44e24d09ff392adaa17977db29e",
       "bytes": 152
     },
     {
@@ -83,9 +83,9 @@
     },
     {
       "path": "index.html",
-      "sha256": "8e72d8f9051a372190667da9dc2930eed345a5d07c0f59a5b6f5778c8fefb067",
-      "git_blob": "baa31b9dce842d780b52e866cb732c1f7d6f4254",
-      "bytes": 5897
+      "sha256": "9a9f1ce95c028da1cb90eec2c12f3369c1e7846048d1d88c8a74e676510bc431",
+      "git_blob": "4e3e48dcd57d22c5a521bbb4d57df52446722fa9",
+      "bytes": 5879
     },
     {
       "path": "pages-adapter.mjs",
@@ -116,6 +116,12 @@
       "sha256": "82f89a32f71b4ba400923b47ea4b804c9db9a70b3b1d6a10b6d877eb980e0693",
       "git_blob": "12d1dc47fb882f84174958e0f5373f31a7818cef",
       "bytes": 69760
+    },
+    {
+      "path": "template-import.mjs",
+      "sha256": "ffae1500348ec39512a2e87a0eb57aa97d525c5b909c03176913d4e6f8a8d366",
+      "git_blob": "5a0374304481f83653cec620924a5a0c6c1d1160",
+      "bytes": 4028
     },
     {
       "path": "upload-history.mjs",
