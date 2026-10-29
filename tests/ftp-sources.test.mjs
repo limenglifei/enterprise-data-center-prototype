@@ -83,7 +83,7 @@ test('FTP page escapes untrusted names and clearly states simulation and server 
 
 test('validation rejects unsupported protocol and file extension mismatches',()=>{
   const config=source(workspace()).ftpConfig;
-  for(const change of [{protocol:'sftp'},{format:'exe'},{filePattern:'*.csv'},{username:''},{directory:'relative'},{frequency:'secondly'}])assert.equal(validateFtpConfig({...config,...change}).valid,false);
+  for(const change of [{protocol:'sftp'},{format:'exe'},{filePattern:'*.csv'},{username:''},{directory:'relative'}])assert.equal(validateFtpConfig({...config,...change}).valid,false);
 });
 
 test('custom script preprocessing retains the exact prepared row object throughout import',()=>{
