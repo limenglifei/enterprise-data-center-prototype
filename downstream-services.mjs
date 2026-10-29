@@ -3,9 +3,9 @@ import {renderSqlServices} from './sql-services.mjs';
 import {renderSubscriptions} from './subscription-services.mjs';
 
 export const DOWNSTREAM_MODES = [
-  {id:'api',name:'API 服务',description:'封装企业筛选与精准查询接口'},
+  {id:'api',name:'标准 API 服务',description:'封装企业筛选与精准查询接口'},
   {id:'sql',name:'动态 SQL 查询',description:'使用参数化 SQL 查询统一企业库'},
-  {id:'subscription',name:'订阅推送',description:'按行业、地区与荣誉资质订阅企业变化'},
+  {id:'subscription',name:'批量订阅推送',description:'按行业、地区与荣誉资质订阅企业变化'},
 ];
 
 export function renderDownstreamServices(state,mode='api') {

@@ -1,0 +1,205 @@
+import {FIELD_DEFS,filterEnterprises,exactQuery} from './core.mjs';
+
+const DEFINITIONS=[
+  {id:'search',kind:'search',name:'企业批量筛选',method:'POST',path:'/api/v1/enterprises/search',version:'1.0.0',description:'按地区、行业、资质、规模、产业链节点组合条件，分页返回统一企业库数据。'},
+  {id:'query',kind:'query',name:'单企业精准查询',method:'GET',path:'/api/v1/enterprises/query',version:'1.0.0',description:'使用统一社会信用代码或企业全称完全匹配，返回该企业工商详细信息。'},
+];
+const VALID_KINDS=['search','query'];
+const SLUG=/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const FILTER_KEYS=['regionProvince','regionCity','regionDistrict','industry','qualifications','scale','chainNodes','keyword'];
+const LABELS={regionProvince:'省份',regionCity:'城市',regionDistrict:'区县',industry:'行业',qualifications:'企业资质',scale:'企业规模',chainNodes:'产业链节点',keyword:'企业名称关键词'};
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const timestamp=()=>new Date().toISOString();
+const requestId=()=>globalThis.crypto?.randomUUID?.()||`req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+const when=v=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
+const button=(title,action,id,kind='secondary')=>`<button class="btn ${kind}" data-action="api-service-${action}" data-id="${esc(id)}">${title}</button>`;
+const jsonCode=v=>`<pre class="code-editor" style="max-height:360px;overflow:auto">${esc(JSON.stringify(v,null,2))}</pre>`;
+
+/** Add the service catalog without replacing user configuration or publication status. */
+export function upgradeApiServices(state){
+  if(!Array.isArray(state.apiServices))state.apiServices=[];
+  for(const definition of DEFINITIONS){
+    const existing=state.apiServices.find(s=>s.id===definition.id);
+    if(!existing)state.apiServices.push({...definition,status:'draft',updatedAt:null,publishedAt:null});
+    else{for(const [key,value] of Object.entries(definition))if(existing[key]==null)existing[key]=value;existing.method=definition.method;existing.path=definition.path;}
+  }
+  if(!Array.isArray(state.apiCallLogs))state.apiCallLogs=[];
+  return state;
+}
+
+export function validateApiServiceConfig(service){
+  const errors=[];
+  if(!service||typeof service!=='object')return {valid:false,errors:['标准 API 服务配置不能为空']};
+  if(typeof service.id!=='string'||service.id.length>60||!SLUG.test(service.id))errors.push('接口标识须为 1–60 个小写字母、数字或短横线，并以字母开头');
+  if(!VALID_KINDS.includes(service.kind))errors.push('请选择有效的服务类型');
+  if(!String(service.name??'').trim()||String(service.name).length>60)errors.push('服务名称须为 1–60 个字符');
+  if(!/^\d+\.\d+\.\d+$/.test(String(service.version??'')))errors.push('版本号需使用 1.0.0 格式');
+  if(!String(service.description??'').trim()||String(service.description).length>500)errors.push('接口描述须为 1–500 个字符');
+  const definition=DEFINITIONS.find(d=>d.id===service.id);
+  const method=service.kind==='search'?'POST':'GET',path=definition?.path||`/api/v1/services/${service.id}`;
+  if((definition&&service.kind!==definition.kind)||service.method!==method||service.path!==path)errors.push('接口类型、请求方法或路径不匹配');
+  return {valid:errors.length===0,errors};
+}
+
+/** Adds declarative configuration only; custom services reuse the two validated enterprise capabilities. */
+export function createApiService(state,input){
+  upgradeApiServices(state);
+  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('标准 API 服务配置不能为空');
+  const service={id:String(input.id??'').trim(),kind:input.kind,name:String(input.name??'').trim(),version:String(input.version??'').trim(),description:String(input.description??'').trim(),status:'draft',updatedAt:timestamp(),publishedAt:null};
+  service.method=service.kind==='search'?'POST':'GET';
+  service.path=`/api/v1/services/${service.id}`;
+  if(state.apiServices.some(s=>s.id===service.id))throw new Error('接口标识已存在，请使用其他标识');
+  const validation=validateApiServiceConfig(service);
+  if(!validation.valid)throw new Error(validation.errors.join('；'));
+  state.apiServices.push(service);
+  return service;
+}
+
+/** Validate before filtering. Reject unknown keys and ambiguous arrays rather than silently ignoring them. */
+export function normalizeApiServiceInput(id,input){
+  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('入参必须是 JSON 对象');
+  if(id==='query'){
+    if(Object.keys(input).some(k=>k!=='keyword'))throw new Error('精准查询仅支持 keyword 参数');
+    if(typeof input.keyword!=='string'||!input.keyword.trim()||input.keyword.trim().length>200)throw new Error('keyword 须为 1–200 个字符的企业全称或信用代码');
+    return {keyword:input.keyword.trim()};
+  }
+  if(id!=='search')throw new Error('未知 API 接口');
+  if(Object.keys(input).some(k=>![...FILTER_KEYS,'page','pageSize'].includes(k)))throw new Error('包含不支持的筛选参数');
+  const output={};
+  for(const key of FILTER_KEYS){
+    const value=input[key];
+    if(value==null||value==='')continue;
+    if(typeof value!=='string'||value.trim().length>200)throw new Error(`${key} 须为不超过 200 个字符的字符串`);
+    if(value.trim())output[key]=value.trim();
+  }
+  for(const [key,fallback,max] of [['page',1,100000],['pageSize',20,100]]){
+    const value=input[key]??fallback;
+    if(!Number.isSafeInteger(value)||value<1||value>max)throw new Error(`${key} 须为 1–${max} 的整数`);
+    output[key]=value;
+  }
+  return output;
+}
+
+export function publicEnterprise(record){
+  if(!record)return null;
+  return {enterpriseId:record.enterpriseId||record.id,...Object.fromEntries(FIELD_DEFS.map(f=>[f.key,record[f.key]??(f.type==='array'?[]:null)])),dataUpdatedAt:record.updatedAt??null};
+}
+
+/** Shared by browser debugging and deployed routes; only exposes the public field allowlist. */
+export function runApiService(state,id,input,{now=timestamp(),id:callId=requestId(),recordLog=true}={}){
+  upgradeApiServices(state);
+  const service=state.apiServices.find(s=>s.id===id);
+  let httpStatus=200,code='SUCCESS',message='成功',data=null;
+  if(!service){httpStatus=404;code='API_NOT_FOUND';message='API 接口不存在';}
+  else if(service.status!=='published'){httpStatus=403;code='API_NOT_PUBLISHED';message=service.status==='disabled'?'API 已停用':'API 尚未发布';}
+  else{
+    try{
+      const validation=validateApiServiceConfig(service);
+      if(!validation.valid)throw new Error(validation.errors.join('；'));
+      const params=normalizeApiServiceInput(service.kind,input);
+      if(service.kind==='search'){
+        const {page,pageSize,...filters}=params;
+        const matches=filterEnterprises(state,filters);
+        data={count:matches.length,page,pageSize,records:matches.slice((page-1)*pageSize,page*pageSize).map(publicEnterprise)};
+      }else{
+        const result=exactQuery(state,params.keyword);
+        if(result.status!=='found'){httpStatus=404;code='ENTERPRISE_NOT_FOUND';message='未找到完全匹配的企业';}
+        else data={count:1,record:publicEnterprise(result.record)};
+      }
+    }catch(error){httpStatus=400;code='INVALID_PARAMETER';message=error.message;}
+  }
+  const body={requestId:callId,code,message,data};
+  if(recordLog){
+    state.apiCallLogs.unshift({id:callId,serviceId:id,serviceName:service?.name||id,version:service?.version||'',createdAt:now,httpStatus,code,resultCount:data?.count||0,mode:'browser_debug'});
+    state.apiCallLogs=state.apiCallLogs.slice(0,100);
+  }
+  return {httpStatus,body};
+}
+
+function paramTable(service){
+  const rows=service.kind==='query'?[['keyword','string','是','统一社会信用代码或完整企业名称，完全匹配']]:[
+    ...FILTER_KEYS.map(key=>[key,'string','否',LABELS[key]+(key==='keyword'?'，按名称包含匹配':'，精确匹配；多条件之间为 AND')]),
+    ['page','integer','否','页码，默认 1，最大 100000'],['pageSize','integer','否','每页数量，默认 20，最大 100'],
+  ];
+  return `<div class="table-wrap"><table><thead><tr><th>参数名</th><th>类型</th><th>必填</th><th>说明</th></tr></thead><tbody>${rows.map(row=>`<tr>${row.map((v,i)=>`<td${i===0?' class="mono"':''}>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+/** Recent counts use the retained execution logs, including successful and failed calls. */
+export function getApiCallHistory(state,serviceId,{now=Date.now()}={}){
+  const end=new Date(now).getTime(),start=end-24*60*60*1000;
+  const logs=(Array.isArray(state.apiCallLogs)?state.apiCallLogs:[])
+    .filter(log=>serviceId==null||log.serviceId===serviceId)
+    .slice().sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0));
+  return {logs,recentLogs:logs.filter(log=>{const time=Date.parse(log.createdAt);return Number.isFinite(time)&&time>=start&&time<=end;})};
+}
+
+export function renderApiCallHistory(state,service,{now=Date.now(),range='recent'}={}){
+  const history=getApiCallHistory(state,service.id,{now});
+  const all=range==='all',logs=all?history.logs:history.recentLogs;
+  return `<p class="mono">${esc(service.method)} ${esc(service.path)}</p><p class="subtle section-gap">基于当前浏览器保留的最近 100 条已执行调用记录，成功与失败均计入；不包含真实服务端请求。近 24 小时明细与列表次数使用相同统计口径。</p><div class="button-group section-gap">${[['recent',`近 24 小时（${history.recentLogs.length}）`],['all',`全部保留记录（${history.logs.length}）`]].map(([value,label])=>`<button class="btn ${value===(all?'all':'recent')?'primary':'secondary'}" data-action="api-service-history" data-id="${esc(service.id)}" data-range="${value}" aria-pressed="${value===(all?'all':'recent')}">${label}</button>`).join('')}</div>${logs.length?`<div class="table-wrap section-gap"><table><thead><tr><th>调用时间</th><th>调用时服务 / 版本</th><th>请求 ID</th><th>状态码 / 业务码</th><th>返回企业数</th><th>执行方式</th></tr></thead><tbody>${logs.map(log=>`<tr><td style="white-space:nowrap">${when(log.createdAt)}</td><td>${esc(log.serviceName)}<p class="subtle">v${esc(log.version)}</p></td><td class="mono" style="max-width:210px;overflow-wrap:anywhere">${esc(log.id)}</td><td><span class="badge ${log.httpStatus===200?'success':'warning'}">${esc(log.httpStatus)} · ${esc(log.code)}</span></td><td>${esc(log.resultCount)}</td><td>${log.mode==='browser_debug'?'浏览器演示调试':esc(log.mode||'未记录')}</td></tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><h3>${all?'暂无调用记录':'近 24 小时暂无调用记录'}</h3><p>通过在线调试执行接口后，可在此查看调用结果；较早记录可切换到全部保留记录查看。</p></div>`}`;
+}
+
+export function renderApiServices(state,{now=Date.now()}={}){
+  upgradeApiServices(state);
+  const published=state.apiServices.filter(s=>s.status==='published').length;
+  const recentTotal=getApiCallHistory(state,null,{now}).recentLogs.length;
+  return `<div class="inline-notice"><span class="badge blue">标准 API 服务目录</span><span>封装统一企业库，配置接口并发布给下游调用。GitHub Pages 演示调试在当前浏览器执行；真实对外服务需部署服务端并配置 ENTERPRISE_API_KEY。</span></div>
+    <div class="stats-grid"><div class="stat-card"><div class="stat-label">已封装接口</div><div class="stat-value">${state.apiServices.length}<span>个 API</span></div><div class="stat-footer">批量筛选 / 精准查询</div></div><div class="stat-card"><div class="stat-label">已发布</div><div class="stat-value">${published}<span>个 API</span></div><div class="stat-footer">发布状态将实际保存</div></div><div class="stat-card"><div class="stat-label">待发布 / 已停用</div><div class="stat-value">${state.apiServices.length-published}<span>个 API</span></div><div class="stat-footer">调用返回 403</div></div><div class="stat-card"><div class="stat-label">近 24 小时调用</div><div class="stat-value">${recentTotal}<span>次</span></div><div class="stat-footer">按已保留的调用记录统计</div></div></div>
+    <section class="card section-gap"><div class="card-header"><div><h2>标准 API 服务</h2><p class="subtle">最近调用次数统计近 24 小时，基于当前浏览器保留的最近 100 条记录；点击次数查看明细。</p></div><div class="button-group"><span class="badge neutral">2 类核心数据服务</span>${button('新增标准 API 服务','create','','primary')}</div></div><div class="table-wrap"><table><thead><tr><th>API 名称</th><th>请求方法 / 路径</th><th>版本</th><th>发布状态</th><th>最近发布</th><th>最近调用次数<p class="subtle">近 24 小时</p></th><th>操作</th></tr></thead><tbody>${state.apiServices.map(s=>{
+      const count=getApiCallHistory(state,s.id,{now}).recentLogs.length;
+      return `<tr><td><strong>${esc(s.name)}</strong><p class="subtle" style="max-width:240px">${esc(s.description)}</p></td><td><span class="badge ${s.method==='POST'?'blue':'success'}">${s.method}</span><p class="mono" style="font-size:12px;margin-top:8px">${esc(s.path)}</p></td><td class="mono">v${esc(s.version)}</td><td><span class="badge ${s.status==='published'?'success':s.status==='disabled'?'neutral':'warning'}">${s.status==='published'?'已发布':s.status==='disabled'?'已停用':'草稿'}</span></td><td>${when(s.publishedAt)}</td><td><button class="btn ghost" data-action="api-service-history" data-id="${esc(s.id)}" aria-label="${esc(s.name)}最近调用 ${count} 次，查看明细">${count} 次</button></td><td><div class="button-group" style="display:flex;flex-wrap:wrap;gap:6px;min-width:190px">${button('配置','configure',s.id,'ghost')}${button('接口文档','docs',s.id,'ghost')}${button('在线调试','debug',s.id,'ghost')}${s.status==='published'?button('停用','disable',s.id,'ghost'):button('发布','publish',s.id,'primary')}</div></td></tr>`;
+    }).join('')}</tbody></table></div></section>`;
+}
+
+function sampleInput(state,kind){return kind==='query'?{keyword:state.records?.[0]?.creditCode||'请输入企业全称或信用代码'}:{regionProvince:'安徽省',industry:'电子信息',page:1,pageSize:20};}
+function debugDialog(state,service,showModal){
+  showModal(`${service.name} · 在线调试`,`<div class="inline-notice"><span class="badge blue">演示调试</span><span>直接使用当前统一企业库执行，与服务端复用同一套筛选逻辑。发布状态与入参校验均生效。</span></div><p class="mono section-gap">${service.method} ${esc(service.path)}</p><form id="api-service-debug-form"><div class="form-field section-gap"><label>请求参数（JSON）</label><textarea name="input" class="code-editor" rows="9" spellcheck="false">${esc(JSON.stringify(sampleInput(state,service.kind),null,2))}</textarea></div></form><div id="api-service-debug-output" class="section-gap"></div>`,button('执行调试','execute-debug',service.id,'primary'),true);
+}
+
+export async function handleApiServiceAction(action,buttonElement,{getState,mutate,toast,showModal,closeModal}){
+  const operation=action.replace(/^api-service-/,'');
+  const state=upgradeApiServices(getState()),id=buttonElement.dataset.id,service=state.apiServices.find(s=>s.id===id);
+  if(operation==='create'){
+    showModal('新增标准 API 服务',`<form id="api-service-create-form" class="form-grid"><div class="form-field full"><label for="api-create-name">服务名称</label><input id="api-create-name" name="name" maxlength="60" placeholder="例如：产业招商企业筛选" required></div><div class="form-field"><label for="api-create-id">接口标识</label><input id="api-create-id" name="id" maxlength="60" pattern="[a-z][a-z0-9]*(?:-[a-z0-9]+)*" placeholder="industry-search" required><small>小写字母开头，可含数字和短横线；标识须唯一。</small></div><div class="form-field"><label for="api-create-kind">服务类型</label><select id="api-create-kind" name="kind"><option value="search">企业批量筛选（POST）</option><option value="query">单企业精准查询（GET）</option></select></div><div class="form-field"><label for="api-create-version">版本号</label><input id="api-create-version" name="version" value="1.0.0" placeholder="1.0.0" required></div><div class="form-field full"><label for="api-create-description">接口描述</label><textarea id="api-create-description" name="description" rows="3" maxlength="500" placeholder="说明接口用途及调用方" required></textarea></div></form><div class="inline-notice section-gap"><span>新建后为草稿，路径自动生成为 /api/v1/services/{接口标识}。接口复用统一企业库与所选服务类型的标准参数、公开字段及 Bearer 鉴权，发布后可调用。</span></div>`,button('创建服务','save-new','','primary'),true);return;
+  }
+  if(operation==='save-new'){
+    const form=new FormData(document.querySelector('#api-service-create-form'));
+    const input=Object.fromEntries(['name','id','kind','version','description'].map(key=>[key,String(form.get(key)||'').trim()]));
+    // Validate against an isolated catalog before mutation so a failed save leaves no draft behind.
+    try{createApiService({...state,apiServices:state.apiServices.map(s=>({...s}))},input);}catch(error){toast(error.message,'error');return;}
+    const ok=await mutate(()=>{createApiService(getState(),input);},'标准 API 服务已创建为草稿，请校验并发布');if(ok)closeModal();return;
+  }
+  if(!service){toast('API 接口不存在','error');return;}
+  if(operation==='history'){
+    showModal(`${service.name} · 调用明细`,renderApiCallHistory(state,service,{range:buttonElement.dataset.range}),button('在线调试','debug',id,'primary'),true);return;
+  }
+  if(operation==='configure'){
+    showModal('配置标准 API 服务',`<form id="api-service-config-form" class="form-grid"><div class="form-field full"><label>服务名称</label><input name="name" maxlength="60" value="${esc(service.name)}"></div><div class="form-field"><label>版本号</label><input name="version" value="${esc(service.version)}" placeholder="1.0.0"></div><div class="form-field"><label>请求方法</label><input value="${service.method}" readonly></div><div class="form-field full"><label>接口路径</label><input value="${esc(service.path)}" readonly></div><div class="form-field full"><label>接口描述</label><textarea name="description" rows="3" maxlength="500">${esc(service.description)}</textarea></div><div class="form-field full"><label>鉴权方式</label><input value="Authorization: Bearer &lt;API_KEY&gt;" readonly><small>服务端通过环境变量 ENTERPRISE_API_KEY 配置，密钥不写入浏览器或源码。</small></div></form><p class="subtle section-gap">保存配置后状态变为草稿，校验并发布后方可调用。接口类型和路径在创建后固定；可新增其他标识的同类型服务。</p>`,button('保存配置','save-config',id,'primary'),true);return;
+  }
+  if(operation==='save-config'){
+    const form=new FormData(document.querySelector('#api-service-config-form'));
+    const candidate={...service,name:String(form.get('name')||'').trim(),version:String(form.get('version')||'').trim(),description:String(form.get('description')||'').trim()};
+    const validation=validateApiServiceConfig(candidate);if(!validation.valid){toast(validation.errors.join('；'),'error');return;}
+    const ok=await mutate(()=>{const current=getState().apiServices.find(s=>s.id===id);Object.assign(current,candidate,{status:'draft',updatedAt:timestamp()});},'接口配置已保存为草稿');if(ok)closeModal();return;
+  }
+  if(operation==='publish'){
+    const validation=validateApiServiceConfig(service);if(!validation.valid){toast(validation.errors.join('；'),'error');return;}
+    await mutate(()=>{const current=getState().apiServices.find(s=>s.id===id);Object.assign(current,{status:'published',publishedAt:timestamp(),updatedAt:timestamp()});},'标准 API 服务已发布，演示调试已开放；公网调用需部署服务端');return;
+  }
+  if(operation==='disable'){
+    await mutate(()=>{Object.assign(getState().apiServices.find(s=>s.id===id),{status:'disabled',updatedAt:timestamp()});},'标准 API 服务已停用，后续调用将返回 403');return;
+  }
+  if(operation==='docs'){
+    const example=sampleInput(state,service.kind),first=publicEnterprise(state.records?.[0]);
+    const response={requestId:'req_example',code:'SUCCESS',message:'成功',data:service.kind==='search'?{count:1,page:1,pageSize:20,records:first?[first]:[]}:{count:first?1:0,record:first}};
+    showModal(`${service.name} · 接口文档`,`<p class="mono">${service.method} ${esc(service.path)}${service.kind==='query'?'?keyword={企业全称或信用代码}':''}</p><p class="subtle">版本 v${esc(service.version)} · ${esc(service.description)}</p><div class="inline-notice section-gap"><span>鉴权：Authorization: Bearer &lt;API_KEY&gt;。请求 Header：Content-Type: application/json。部署地址由服务端域名 + 下列路径组成，GitHub Pages 域名不承载 API。</span></div><h3 class="section-gap">请求参数</h3>${paramTable(service)}<h3 class="section-gap">请求示例${service.kind==='query'?'（查询参数）':''}</h3>${jsonCode(example)}<h3 class="section-gap">返回参数</h3><p class="subtle">外层：requestId / code / message / data。${service.kind==='search'?'data.count 为满足条件的总数，records 为当前页企业数组。':'data.record 为精确匹配的企业，未匹配返回 404。'}企业字段仅返回下表，不包含原始来源记录和内部血缘。</p><div class="table-wrap"><table><thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead><tbody><tr><td class="mono">enterpriseId</td><td>string</td><td>中心企业 ID</td></tr>${FIELD_DEFS.map(f=>`<tr><td class="mono">${f.key}</td><td>${f.type}</td><td>${f.label}</td></tr>`).join('')}<tr><td class="mono">dataUpdatedAt</td><td>string | null</td><td>中心数据更新时间，ISO 8601</td></tr></tbody></table></div><h3 class="section-gap">返回示例</h3>${jsonCode(response)}<h3 class="section-gap">状态码</h3><p class="subtle">200 成功 · 400 参数错误 · 401 鉴权失败 · 403 未发布或已停用 · 404 企业不存在 · 413 请求体过大 · 503 密钥或存储未配置。服务端不会因查询触发付费厂商接口。</p>`,button('在线调试','debug',id,'primary'),true);return;
+  }
+  if(operation==='debug'){debugDialog(state,service,showModal);return;}
+  if(operation==='execute-debug'){
+    let input;try{input=JSON.parse(new FormData(document.querySelector('#api-service-debug-form')).get('input'));}catch{toast('请求参数必须是有效的 JSON 对象','error');return;}
+    let result;
+    const ok=await mutate(()=>{result=runApiService(getState(),id,input);});
+    const output=document.querySelector('#api-service-debug-output');
+    if(ok&&output&&result)output.innerHTML=`<h3>HTTP ${result.httpStatus} <span class="badge ${result.httpStatus===200?'success':'warning'}">${esc(result.body.code)}</span></h3>${jsonCode(result.body)}`;
+  }
+}
