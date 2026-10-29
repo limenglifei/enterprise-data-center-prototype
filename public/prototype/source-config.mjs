@@ -91,7 +91,7 @@ export function upgradeSourceState(state) {
   if (!state.providers.some(provider => provider.id === 'qxb')) state.providers.push(makeApiSource({ id: 'qxb', template: 'qxb' }).provider);
   for (const provider of state.providers) {
     delete provider.managedKeywords;
-    if (provider.type === 'file' || provider.id === 'file') continue;
+    if (provider.type === 'file' || provider.type === 'ftp' || provider.id === 'file') continue;
     const template = ['qcc', 'tyc', 'qxb'].includes(provider.template || provider.id) ? provider.template || provider.id : 'custom';
     const defaults = makeApiSource({ id: provider.id, name: provider.name, template });
     for (const [key, value] of Object.entries(defaults.config)) if (provider[key] === undefined || provider[key] === null) provider[key] = copy(value);
