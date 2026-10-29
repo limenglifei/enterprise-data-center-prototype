@@ -78,7 +78,7 @@ export function createInitialState({seed=true}={}) {
       tyc:{enabled:false,mode:'incremental',frequency:'weekly',intervalHours:168,time:'03:00',lastCursor:null,nextRunAt:null},
       file:{enabled:false,mode:'full',frequency:'manual',intervalHours:0,time:'',lastCursor:null,nextRunAt:null},
     },
-    rawRecords:[],records:[],tasks:[],serviceLogs:[],
+    rawRecords:[],records:[],tasks:[],serviceLogs:[],fieldSourceOverrides:{},
   };
   if(seed) for(const sourceId of ['qcc','tyc','file']) applyBatch(state,{sourceId,rows:clone(DEMO_SNAPSHOTS[sourceId].v1),mode:'full',now:'2026-10-27T09:00:00+08:00'});
   return state;
@@ -241,12 +241,22 @@ export function recomputeRecords(state,{now}={}) {
   }
   state.records=[...groups].map(([id,raws]) => {
     const record={id,enterpriseId:id,lineage:{},sources:[...new Set(raws.map(r=>r.sourceId))],synthetic:raws.some(r=>r.raw?._synthetic===true)};
+    const identityKey=normalizeCode(oldRecords.get(id)?.creditCode)||normalizeCode(raws[0]?.entityKey);
     for(const def of FIELD_DEFS) {
       const priorities=state.priorities[def.key]??state.providers.map(p=>p.id);
-      const candidates=raws.filter(r => Object.hasOwn(r.values,def.key)).map(r => ({sourceId:r.sourceId,sourceName:state.providers.find(p=>p.id===r.sourceId)?.name??r.sourceId,value:clone(r.values[def.key]),sourceUpdatedAt:r.sourceUpdatedAt,sourceTimeAssumed:Boolean(r.sourceTimeAssumed),sourceTimeField:r.sourceTimeField??null,ingestedAt:r.ingestedAt,script:r.scriptVersions?.[def.key]??null,empty:empty(r.values[def.key]),priority:priorities.indexOf(r.sourceId)>=0?priorities.indexOf(r.sourceId)+1:999,rawField:r.fieldMappings?.[def.key]??(state.mappings[r.sourceId]??[]).find(m=>m.targetField===def.key)?.sourceField??null})).sort((a,b)=>a.priority-b.priority || Date.parse(b.sourceUpdatedAt)-Date.parse(a.sourceUpdatedAt));
-      const selected=candidates.find(c=>!c.empty)??null;
+      const candidates=raws.filter(r => Object.hasOwn(r.values,def.key)).map(r => {
+        const valid=def.key!=='creditCode'||normalizeCode(r.values.creditCode)===identityKey&&normalizeCode(r.entityKey)===identityKey&&getRecordId(r.values.creditCode)===id;
+        return {sourceId:r.sourceId,sourceName:state.providers.find(p=>p.id===r.sourceId)?.name??r.sourceId,value:clone(r.values[def.key]),sourceUpdatedAt:r.sourceUpdatedAt,sourceTimeAssumed:Boolean(r.sourceTimeAssumed),sourceTimeField:r.sourceTimeField??null,ingestedAt:r.ingestedAt,script:r.scriptVersions?.[def.key]??null,empty:empty(r.values[def.key]),valid,invalidReason:valid?null:'信用代码与当前企业身份不一致',priority:priorities.indexOf(r.sourceId)>=0?priorities.indexOf(r.sourceId)+1:999,rawField:r.fieldMappings?.[def.key]??(state.mappings[r.sourceId]??[]).find(m=>m.targetField===def.key)?.sourceField??null};
+      }).sort((a,b)=>a.priority-b.priority || Date.parse(b.sourceUpdatedAt)-Date.parse(a.sourceUpdatedAt));
+      const override=state.fieldSourceOverrides?.[id]?.[def.key],manualRequested=Boolean(override&&typeof override.sourceId==='string'&&override.sourceId),requestedSourceId=manualRequested?override.sourceId:null;
+      const requested=candidates.find(c=>c.sourceId===requestedSourceId),sourceExists=manualRequested&&state.providers.some(p=>p.id===requestedSourceId);
+      const pinned=sourceExists&&requested&&!requested.empty&&requested.valid?requested:null;
+      const selected=pinned||candidates.find(c=>!c.empty&&c.valid)||null,manualApplied=Boolean(pinned),fallback=manualRequested&&!manualApplied;
+      const fallbackReason=!fallback?null:!sourceExists?'指定信源已不存在':!requested?'指定信源尚无该字段候选值':requested.empty?'指定信源当前值为空':'指定信源信用代码与当前企业身份不一致';
+      const automaticRule='按字段来源优先级选择首个非空候选值；同一来源只保留较新版本，空值回退下一来源。';
+      const rule=manualApplied?`手动指定信源「${requested.sourceName}」；跟随该信源后续最新非空值，不受全局信源排序影响。`:fallback?`保留手动指定信源「${state.providers.find(p=>p.id===requestedSourceId)?.name??requestedSourceId}」的选择；${fallbackReason}，${selected?'本次自动按全局信源排序回退到其他非空值':'当前无有效非空候选值'}。指定信源恢复有效值后自动恢复手动取值。`:automaticRule;
       record[def.key]=selected?clone(selected.value):def.type==='array'?[]:null;
-      record.lineage[def.key]={selected:selected?clone(selected):null,candidates:candidates.map(c=>({...c,selected:c===selected})),rule:'按字段来源优先级选择首个非空候选值；同一来源只保留较新版本，空值回退下一来源。'};
+      record.lineage[def.key]={selected:selected?clone(selected):null,candidates:candidates.map(c=>({...c,selected:c===selected})),rule,override:manualRequested?clone(override):null,requestedSourceId,manualRequested,manualApplied,fallback,fallbackReason,selectionMode:manualApplied?'manual':fallback?'auto_fallback':'auto'};
     }
     const old=oldRecords.get(id);
     record.createdAt=old?.createdAt??at;
@@ -287,7 +297,41 @@ export function exactQuery(state,query) {
 
 export function getLineage(state,id,field) {
   const record=state.records.find(r=>r.id===id || r.creditCode===id);
-  return record?.lineage?.[field]??{selected:null,candidates:[],rule:'暂无来源数据'};
+  return {selected:null,candidates:[],rule:'暂无来源数据',override:null,requestedSourceId:null,manualRequested:false,manualApplied:false,fallback:false,fallbackReason:null,selectionMode:'auto',...(record?.lineage?.[field]??{})};
+}
+
+function validateFieldOverrideTarget(state,recordId,field,now){
+  const record=state.records.find(item=>item.id===recordId);
+  if(!record)throw new Error('企业记录不存在，请刷新后重试');
+  if(!FIELD_KEYS.has(field))throw new Error('不支持的标准字段');
+  if(now!=null&&validDateMs(now)===null)throw new Error('手动选择时间无效');
+  return record;
+}
+
+/** Persist one enterprise/field source preference, never a copied value or a raw-record rewrite. */
+export function setFieldSourceOverride(state,recordId,field,sourceId,{now}={}){
+  const record=validateFieldOverrideTarget(state,recordId,field,now);
+  if(typeof sourceId!=='string'||!state.providers.some(provider=>provider.id===sourceId))throw new Error('指定信源不存在');
+  const candidates=state.rawRecords.filter(raw=>raw.recordId===recordId&&raw.sourceId===sourceId&&Object.hasOwn(raw.values,field)).sort((a,b)=>Date.parse(b.sourceUpdatedAt)-Date.parse(a.sourceUpdatedAt));
+  const candidate=candidates[0];
+  if(!candidate)throw new Error('该信源没有当前企业此字段的候选值');
+  if(empty(candidate.values[field]))throw new Error('该信源当前字段值为空，不能手动选择');
+  if(field==='creditCode'&&(normalizeCode(candidate.values.creditCode)!==normalizeCode(record.creditCode)||normalizeCode(candidate.entityKey)!==normalizeCode(record.creditCode)||getRecordId(candidate.values.creditCode)!==recordId))throw new Error('信用代码与当前企业身份不一致，不能切换到其他企业');
+  if(state.fieldSourceOverrides?.[recordId]?.[field]?.sourceId===sourceId)return getLineage(state,recordId,field);
+  state.fieldSourceOverrides??={};state.fieldSourceOverrides[recordId]??={};
+  state.fieldSourceOverrides[recordId][field]={sourceId,updatedAt:nowIso(now)};
+  recomputeRecords(state,{now});state.dataVersion=(state.dataVersion??0)+1;
+  return getLineage(state,recordId,field);
+}
+
+/** Restore automatic source ranking for only this enterprise/field. No-op when no pin exists. */
+export function clearFieldSourceOverride(state,recordId,field,{now}={}){
+  validateFieldOverrideTarget(state,recordId,field,now);
+  if(!Object.hasOwn(state.fieldSourceOverrides?.[recordId]??{},field))return getLineage(state,recordId,field);
+  delete state.fieldSourceOverrides[recordId][field];
+  if(!Object.keys(state.fieldSourceOverrides[recordId]).length)delete state.fieldSourceOverrides[recordId];
+  recomputeRecords(state,{now});state.dataVersion=(state.dataVersion??0)+1;
+  return getLineage(state,recordId,field);
 }
 
 export function recordServiceCall(state,{type,query='',filters={},resultCount=0,now}={}) {
