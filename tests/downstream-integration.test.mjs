@@ -40,7 +40,7 @@ test('downstream page exposes three service channels while retaining existing AP
   const state=upgrade(createInitialState());
   for(const mode of ['api','sql','subscription']){
     const html=renderDownstreamServices(state,mode);
-    assert.match(html,/API 服务/);assert.match(html,/动态 SQL 查询/);assert.match(html,/订阅推送/);
+    assert.match(html,/标准 API 服务/);assert.match(html,/动态 SQL 查询/);assert.match(html,/批量订阅推送/);
     assert.match(html,new RegExp(`aria-selected="true" data-action="downstream-mode" data-mode="${mode}"`));
   }
   assert.match(renderDownstreamServices(state,'api'),/最近调用次数/);

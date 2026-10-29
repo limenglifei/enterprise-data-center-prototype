@@ -82,5 +82,5 @@ test('call logs retain latest 100 and server read-only execution avoids writes',
 });
 test('catalog discloses browser-only demo execution and both real interface paths',()=>{
   const html=renderApiServices(ready());assert.match(html,/GitHub Pages/);assert.match(html,/当前浏览器执行/);assert.match(html,/\/api\/v1\/enterprises\/search/);assert.match(html,/\/api\/v1\/enterprises\/query/);
-  assert.match(html,/data-action="api-service-create"/);assert.match(html,/新增 API 服务/);
+  assert.match(html,/data-action="api-service-create"/);assert.match(html,/新增标准 API 服务/);
 });

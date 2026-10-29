@@ -29,7 +29,7 @@ export function upgradeApiServices(state){
 
 export function validateApiServiceConfig(service){
   const errors=[];
-  if(!service||typeof service!=='object')return {valid:false,errors:['API 服务配置不能为空']};
+  if(!service||typeof service!=='object')return {valid:false,errors:['标准 API 服务配置不能为空']};
   if(typeof service.id!=='string'||service.id.length>60||!SLUG.test(service.id))errors.push('接口标识须为 1–60 个小写字母、数字或短横线，并以字母开头');
   if(!VALID_KINDS.includes(service.kind))errors.push('请选择有效的服务类型');
   if(!String(service.name??'').trim()||String(service.name).length>60)errors.push('服务名称须为 1–60 个字符');
@@ -44,7 +44,7 @@ export function validateApiServiceConfig(service){
 /** Adds declarative configuration only; custom services reuse the two validated enterprise capabilities. */
 export function createApiService(state,input){
   upgradeApiServices(state);
-  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('API 服务配置不能为空');
+  if(!input||typeof input!=='object'||Array.isArray(input))throw new Error('标准 API 服务配置不能为空');
   const service={id:String(input.id??'').trim(),kind:input.kind,name:String(input.name??'').trim(),version:String(input.version??'').trim(),description:String(input.description??'').trim(),status:'draft',updatedAt:timestamp(),publishedAt:null};
   service.method=service.kind==='search'?'POST':'GET';
   service.path=`/api/v1/services/${service.id}`;
@@ -143,9 +143,9 @@ export function renderApiServices(state,{now=Date.now()}={}){
   upgradeApiServices(state);
   const published=state.apiServices.filter(s=>s.status==='published').length;
   const recentTotal=getApiCallHistory(state,null,{now}).recentLogs.length;
-  return `<div class="inline-notice"><span class="badge blue">API 服务目录</span><span>封装统一企业库，配置接口并发布给下游调用。GitHub Pages 演示调试在当前浏览器执行；真实对外服务需部署服务端并配置 ENTERPRISE_API_KEY。</span></div>
+  return `<div class="inline-notice"><span class="badge blue">标准 API 服务目录</span><span>封装统一企业库，配置接口并发布给下游调用。GitHub Pages 演示调试在当前浏览器执行；真实对外服务需部署服务端并配置 ENTERPRISE_API_KEY。</span></div>
     <div class="stats-grid"><div class="stat-card"><div class="stat-label">已封装接口</div><div class="stat-value">${state.apiServices.length}<span>个 API</span></div><div class="stat-footer">批量筛选 / 精准查询</div></div><div class="stat-card"><div class="stat-label">已发布</div><div class="stat-value">${published}<span>个 API</span></div><div class="stat-footer">发布状态将实际保存</div></div><div class="stat-card"><div class="stat-label">待发布 / 已停用</div><div class="stat-value">${state.apiServices.length-published}<span>个 API</span></div><div class="stat-footer">调用返回 403</div></div><div class="stat-card"><div class="stat-label">近 24 小时调用</div><div class="stat-value">${recentTotal}<span>次</span></div><div class="stat-footer">按已保留的调用记录统计</div></div></div>
-    <section class="card section-gap"><div class="card-header"><div><h2>对外 API 接口</h2><p class="subtle">最近调用次数统计近 24 小时，基于当前浏览器保留的最近 100 条记录；点击次数查看明细。</p></div><div class="button-group"><span class="badge neutral">2 类核心数据服务</span>${button('新增 API 服务','create','','primary')}</div></div><div class="table-wrap"><table><thead><tr><th>API 名称</th><th>请求方法 / 路径</th><th>版本</th><th>发布状态</th><th>最近发布</th><th>最近调用次数<p class="subtle">近 24 小时</p></th><th>操作</th></tr></thead><tbody>${state.apiServices.map(s=>{
+    <section class="card section-gap"><div class="card-header"><div><h2>标准 API 服务</h2><p class="subtle">最近调用次数统计近 24 小时，基于当前浏览器保留的最近 100 条记录；点击次数查看明细。</p></div><div class="button-group"><span class="badge neutral">2 类核心数据服务</span>${button('新增标准 API 服务','create','','primary')}</div></div><div class="table-wrap"><table><thead><tr><th>API 名称</th><th>请求方法 / 路径</th><th>版本</th><th>发布状态</th><th>最近发布</th><th>最近调用次数<p class="subtle">近 24 小时</p></th><th>操作</th></tr></thead><tbody>${state.apiServices.map(s=>{
       const count=getApiCallHistory(state,s.id,{now}).recentLogs.length;
       return `<tr><td><strong>${esc(s.name)}</strong><p class="subtle" style="max-width:240px">${esc(s.description)}</p></td><td><span class="badge ${s.method==='POST'?'blue':'success'}">${s.method}</span><p class="mono" style="font-size:12px;margin-top:8px">${esc(s.path)}</p></td><td class="mono">v${esc(s.version)}</td><td><span class="badge ${s.status==='published'?'success':s.status==='disabled'?'neutral':'warning'}">${s.status==='published'?'已发布':s.status==='disabled'?'已停用':'草稿'}</span></td><td>${when(s.publishedAt)}</td><td><button class="btn ghost" data-action="api-service-history" data-id="${esc(s.id)}" aria-label="${esc(s.name)}最近调用 ${count} 次，查看明细">${count} 次</button></td><td><div class="button-group" style="display:flex;flex-wrap:wrap;gap:6px;min-width:190px">${button('配置','configure',s.id,'ghost')}${button('接口文档','docs',s.id,'ghost')}${button('在线调试','debug',s.id,'ghost')}${s.status==='published'?button('停用','disable',s.id,'ghost'):button('发布','publish',s.id,'primary')}</div></td></tr>`;
     }).join('')}</tbody></table></div></section>`;
@@ -160,21 +160,21 @@ export async function handleApiServiceAction(action,buttonElement,{getState,muta
   const operation=action.replace(/^api-service-/,'');
   const state=upgradeApiServices(getState()),id=buttonElement.dataset.id,service=state.apiServices.find(s=>s.id===id);
   if(operation==='create'){
-    showModal('新增 API 服务',`<form id="api-service-create-form" class="form-grid"><div class="form-field full"><label for="api-create-name">服务名称</label><input id="api-create-name" name="name" maxlength="60" placeholder="例如：产业招商企业筛选" required></div><div class="form-field"><label for="api-create-id">接口标识</label><input id="api-create-id" name="id" maxlength="60" pattern="[a-z][a-z0-9]*(?:-[a-z0-9]+)*" placeholder="industry-search" required><small>小写字母开头，可含数字和短横线；标识须唯一。</small></div><div class="form-field"><label for="api-create-kind">服务类型</label><select id="api-create-kind" name="kind"><option value="search">企业批量筛选（POST）</option><option value="query">单企业精准查询（GET）</option></select></div><div class="form-field"><label for="api-create-version">版本号</label><input id="api-create-version" name="version" value="1.0.0" placeholder="1.0.0" required></div><div class="form-field full"><label for="api-create-description">接口描述</label><textarea id="api-create-description" name="description" rows="3" maxlength="500" placeholder="说明接口用途及调用方" required></textarea></div></form><div class="inline-notice section-gap"><span>新建后为草稿，路径自动生成为 /api/v1/services/{接口标识}。接口复用统一企业库与所选服务类型的标准参数、公开字段及 Bearer 鉴权，发布后可调用。</span></div>`,button('创建服务','save-new','','primary'),true);return;
+    showModal('新增标准 API 服务',`<form id="api-service-create-form" class="form-grid"><div class="form-field full"><label for="api-create-name">服务名称</label><input id="api-create-name" name="name" maxlength="60" placeholder="例如：产业招商企业筛选" required></div><div class="form-field"><label for="api-create-id">接口标识</label><input id="api-create-id" name="id" maxlength="60" pattern="[a-z][a-z0-9]*(?:-[a-z0-9]+)*" placeholder="industry-search" required><small>小写字母开头，可含数字和短横线；标识须唯一。</small></div><div class="form-field"><label for="api-create-kind">服务类型</label><select id="api-create-kind" name="kind"><option value="search">企业批量筛选（POST）</option><option value="query">单企业精准查询（GET）</option></select></div><div class="form-field"><label for="api-create-version">版本号</label><input id="api-create-version" name="version" value="1.0.0" placeholder="1.0.0" required></div><div class="form-field full"><label for="api-create-description">接口描述</label><textarea id="api-create-description" name="description" rows="3" maxlength="500" placeholder="说明接口用途及调用方" required></textarea></div></form><div class="inline-notice section-gap"><span>新建后为草稿，路径自动生成为 /api/v1/services/{接口标识}。接口复用统一企业库与所选服务类型的标准参数、公开字段及 Bearer 鉴权，发布后可调用。</span></div>`,button('创建服务','save-new','','primary'),true);return;
   }
   if(operation==='save-new'){
     const form=new FormData(document.querySelector('#api-service-create-form'));
     const input=Object.fromEntries(['name','id','kind','version','description'].map(key=>[key,String(form.get(key)||'').trim()]));
     // Validate against an isolated catalog before mutation so a failed save leaves no draft behind.
     try{createApiService({...state,apiServices:state.apiServices.map(s=>({...s}))},input);}catch(error){toast(error.message,'error');return;}
-    const ok=await mutate(()=>{createApiService(getState(),input);},'API 服务已创建为草稿，请校验并发布');if(ok)closeModal();return;
+    const ok=await mutate(()=>{createApiService(getState(),input);},'标准 API 服务已创建为草稿，请校验并发布');if(ok)closeModal();return;
   }
   if(!service){toast('API 接口不存在','error');return;}
   if(operation==='history'){
     showModal(`${service.name} · 调用明细`,renderApiCallHistory(state,service,{range:buttonElement.dataset.range}),button('在线调试','debug',id,'primary'),true);return;
   }
   if(operation==='configure'){
-    showModal('配置 API 封装',`<form id="api-service-config-form" class="form-grid"><div class="form-field full"><label>服务名称</label><input name="name" maxlength="60" value="${esc(service.name)}"></div><div class="form-field"><label>版本号</label><input name="version" value="${esc(service.version)}" placeholder="1.0.0"></div><div class="form-field"><label>请求方法</label><input value="${service.method}" readonly></div><div class="form-field full"><label>接口路径</label><input value="${esc(service.path)}" readonly></div><div class="form-field full"><label>接口描述</label><textarea name="description" rows="3" maxlength="500">${esc(service.description)}</textarea></div><div class="form-field full"><label>鉴权方式</label><input value="Authorization: Bearer &lt;API_KEY&gt;" readonly><small>服务端通过环境变量 ENTERPRISE_API_KEY 配置，密钥不写入浏览器或源码。</small></div></form><p class="subtle section-gap">保存配置后状态变为草稿，校验并发布后方可调用。接口类型和路径在创建后固定；可新增其他标识的同类型服务。</p>`,button('保存配置','save-config',id,'primary'),true);return;
+    showModal('配置标准 API 服务',`<form id="api-service-config-form" class="form-grid"><div class="form-field full"><label>服务名称</label><input name="name" maxlength="60" value="${esc(service.name)}"></div><div class="form-field"><label>版本号</label><input name="version" value="${esc(service.version)}" placeholder="1.0.0"></div><div class="form-field"><label>请求方法</label><input value="${service.method}" readonly></div><div class="form-field full"><label>接口路径</label><input value="${esc(service.path)}" readonly></div><div class="form-field full"><label>接口描述</label><textarea name="description" rows="3" maxlength="500">${esc(service.description)}</textarea></div><div class="form-field full"><label>鉴权方式</label><input value="Authorization: Bearer &lt;API_KEY&gt;" readonly><small>服务端通过环境变量 ENTERPRISE_API_KEY 配置，密钥不写入浏览器或源码。</small></div></form><p class="subtle section-gap">保存配置后状态变为草稿，校验并发布后方可调用。接口类型和路径在创建后固定；可新增其他标识的同类型服务。</p>`,button('保存配置','save-config',id,'primary'),true);return;
   }
   if(operation==='save-config'){
     const form=new FormData(document.querySelector('#api-service-config-form'));
@@ -184,10 +184,10 @@ export async function handleApiServiceAction(action,buttonElement,{getState,muta
   }
   if(operation==='publish'){
     const validation=validateApiServiceConfig(service);if(!validation.valid){toast(validation.errors.join('；'),'error');return;}
-    await mutate(()=>{const current=getState().apiServices.find(s=>s.id===id);Object.assign(current,{status:'published',publishedAt:timestamp(),updatedAt:timestamp()});},'API 已发布，演示调试已开放；公网调用需部署服务端');return;
+    await mutate(()=>{const current=getState().apiServices.find(s=>s.id===id);Object.assign(current,{status:'published',publishedAt:timestamp(),updatedAt:timestamp()});},'标准 API 服务已发布，演示调试已开放；公网调用需部署服务端');return;
   }
   if(operation==='disable'){
-    await mutate(()=>{Object.assign(getState().apiServices.find(s=>s.id===id),{status:'disabled',updatedAt:timestamp()});},'API 已停用，后续调用将返回 403');return;
+    await mutate(()=>{Object.assign(getState().apiServices.find(s=>s.id===id),{status:'disabled',updatedAt:timestamp()});},'标准 API 服务已停用，后续调用将返回 403');return;
   }
   if(operation==='docs'){
     const example=sampleInput(state,service.kind),first=publicEnterprise(state.records?.[0]);
