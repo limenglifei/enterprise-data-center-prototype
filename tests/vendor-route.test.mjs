@@ -74,12 +74,12 @@ test('parameters require scalar bounded values, unique case-insensitive headers,
   assert.equal(calls, 0);
 });
 
-test('QCC transmits configured safe parameters and returns full vendor JSON; auth stays server-generated', async () => {
+test('QCC transmits matching target parameters and returns full vendor JSON; auth stays server-generated', async () => {
   setSecrets(); let called = false;
   const vendorResponse = { Status: '200', Message: 'OK', Result: { Name: '演示企业有限公司', CreditCode: 'DEMO-CN-000001' }, extra: { marker: 'complete-response' } };
   globalThis.fetch = async (url, options) => {
     called = true; const target = new URL(url); assert.equal(target.origin + target.pathname, endpoint.qcc);
-    assert.equal(target.searchParams.get('keyword'), '演示企业有限公司'); assert.equal(target.searchParams.get('page'), '2');
+    assert.equal(target.searchParams.get('keyword'), 'DEMO-CN-000001'); assert.equal(target.searchParams.get('page'), '2');
     assert.equal(target.searchParams.get('flag'), 'false'); assert.equal(target.searchParams.get('key'), process.env.QCC_APP_KEY);
     assert.equal(options.headers.get('X-Trace-Label'), 'prototype-test');
     const span = options.headers.get('Timespan'); assert.match(span, /^\d+$/);
@@ -87,11 +87,20 @@ test('QCC transmits configured safe parameters and returns full vendor JSON; aut
     assert.equal(options.redirect, 'error'); assert.equal(options.method, 'GET');
     return Response.json(vendorResponse);
   };
-  const response = await route.POST(request(payload({ config: { baseUrl: endpoint.qcc, method: 'GET', responsePath: 'Result' }, parameters: { query: { keyword: '演示企业有限公司', page: 2, flag: false }, headers: { 'X-Trace-Label': 'prototype-test' }, body: {} } })));
+  const response = await route.POST(request(payload({ config: { baseUrl: endpoint.qcc, method: 'GET', responsePath: 'Result' }, parameters: { query: { keyword: ' DEMO-CN-000001 ', page: 2, flag: false }, headers: { 'X-Trace-Label': 'prototype-test' }, body: {} } })));
   assert.equal(response.status, 200); assert.equal(called, true);
   const result = await response.json(); assert.deepEqual(result.vendorResponse, vendorResponse); assert.deepEqual(result.record, vendorResponse.Result);
   assert.equal(result.providerId, 'qcc'); assert.ok(Number.isFinite(Date.parse(result.collectedAt)));
   assert.equal(JSON.stringify(result).includes(process.env.QCC_SECRET_KEY), false);
+});
+
+test('configured query identity cannot override the selected task target or trigger an out-of-range vendor call', async () => {
+  setSecrets(); let calls = 0; globalThis.fetch = async () => { calls++; throw new Error('must not fetch'); };
+  for (const providerId of ['qcc', 'tyc']) {
+    const response = await route.POST(request(payload({ providerId, parameters: { query: { keyword: 'DEMO-CN-000002' }, headers: {}, body: {} } })));
+    assert.equal(response.status, 400); const body = await response.json(); assert.equal(body.error, 'INVALID_REQUEST_CONFIG'); assert.match(body.message, /目标企业不一致/);
+  }
+  assert.equal(calls, 0);
 });
 
 test('TYC retains server Authorization while passing configured query and non-auth headers', async () => {
@@ -119,7 +128,7 @@ test('configured response root never bypasses official business success checks',
 
 test('legacy requests remain compatible without page-provided config or parameters', async () => {
   setSecrets();
-  globalThis.fetch = async () => Response.json({ Status: '200', Result: { Name: '演示旧调用有限公司' } });
+  let calls=0;globalThis.fetch = async url => {calls++;assert.equal(new URL(url).searchParams.get('keyword'),'DEMO-CN-000001');return Response.json({ Status: '200', Result: { Name: '演示旧调用有限公司' } });};
   const response = await route.POST(request(payload()));
-  assert.equal(response.status, 200); assert.equal((await response.json()).record.Name, '演示旧调用有限公司');
+  assert.equal(response.status, 200); assert.equal((await response.json()).record.Name, '演示旧调用有限公司');assert.equal(calls,1);
 });

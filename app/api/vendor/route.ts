@@ -156,6 +156,10 @@ export async function POST(request: Request) {
   try {
     validateRequestConfig(body.config, providerId);
     parameters = readParameters(body.parameters);
+    if (Object.prototype.hasOwnProperty.call(parameters.query, "keyword")
+      && String(parameters.query.keyword).trim() !== keyword) {
+      throw new Error("Query 参数 keyword 与本次目标企业不一致，请使用任务提供的企业全称或统一社会信用代码。");
+    }
   } catch (error) {
     return failure(providerId, "INVALID_REQUEST_CONFIG", error instanceof Error ? error.message : "API 配置不正确。", 400);
   }
@@ -169,8 +173,9 @@ export async function POST(request: Request) {
 
   // Only fixed official, read-only business-information endpoints are callable.
   const url = new URL(officialEndpoints[providerId]);
-  url.searchParams.set("keyword", keyword);
   for (const [name, value] of Object.entries(parameters.query)) url.searchParams.set(name, String(value ?? ""));
+  // The task-selected identity is authoritative, including when an equivalent Query value has whitespace.
+  url.searchParams.set("keyword", keyword);
   const headers = new Headers({ Accept: "application/json" });
   for (const [name, value] of Object.entries(parameters.headers)) headers.set(name, String(value ?? ""));
   if (providerId === "qcc") {
