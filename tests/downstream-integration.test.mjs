@@ -5,13 +5,12 @@ import {createInitialState,FIELD_DEFS} from '../public/prototype/core.mjs';
 import {upgradeSourceState} from '../public/prototype/source-config.mjs';
 import {upgradeApiServices} from '../public/prototype/api-services.mjs';
 import {upgradeFtpSources} from '../public/prototype/ftp-sources.mjs';
-import {upgradeSqlServices} from '../public/prototype/sql-services.mjs';
 import {upgradeSubscriptions} from '../public/prototype/subscription-services.mjs';
 import {renderDownstreamServices,downstreamCounts} from '../public/prototype/downstream-services.mjs';
 
 function upgrade(state){
   upgradeSourceState(state);upgradeApiServices(state);upgradeFtpSources(state);
-  upgradeSqlServices(state);upgradeSubscriptions(state);return state;
+  upgradeSubscriptions(state);return state;
 }
 
 test('existing workspace upgrade preserves enterprise data and is idempotent across all new modules',()=>{
@@ -36,19 +35,33 @@ test('API source migration does not overwrite FTP configuration with API default
   assert.equal(provider.baseUrl,undefined);
 });
 
-test('downstream page exposes three service channels while retaining existing API catalogue',()=>{
+test('downstream defaults to subscription first and retains explicit API catalogue access',()=>{
   const state=upgrade(createInitialState());
-  for(const mode of ['api','sql','subscription']){
+  for(const mode of ['subscription','api']){
     const html=renderDownstreamServices(state,mode);
-    assert.match(html,/标准 API 服务/);assert.match(html,/动态 SQL 查询/);assert.match(html,/批量订阅推送/);
     assert.match(html,new RegExp(`aria-selected="true" data-action="downstream-mode" data-mode="${mode}"`));
   }
+  const defaultHtml=renderDownstreamServices(state);
+  assert.equal([...defaultHtml.matchAll(/data-action="downstream-mode" data-mode="([^"]+)"/g)].map(match=>match[1]).join(','),'subscription,api');
+  assert.equal(defaultHtml,renderDownstreamServices(state,'subscription'));
   assert.match(renderDownstreamServices(state,'api'),/最近调用次数/);
 });
 
-test('overview published counts exclude draft and paused services across channels',()=>{
-  const counts=downstreamCounts({apiServices:[{status:'published'},{status:'draft'}],sqlServices:[{status:'published'},{status:'disabled'}],subscriptions:[{status:'published'},{status:'paused'}]});
-  assert.deepEqual(counts,{api:1,sql:1,subscription:1});
+test('legacy or invalid service mode falls back to subscription without removing stored query history',()=>{
+  const state=createInitialState();
+  state.sqlServices=[{id:'retained-query',name:'历史查询配置',status:'published',sql:'SELECT enterpriseName FROM enterprises'}];
+  state.sqlRuns=[{id:'retained-run',serviceId:'retained-query',status:'success'}];
+  const preserved=JSON.stringify([state.sqlServices,state.sqlRuns]);upgrade(state);
+  const expected=renderDownstreamServices(state,'subscription');
+  for(const mode of ['sql','missing-mode','',null])assert.equal(renderDownstreamServices(state,mode),expected);
+  assert.equal(JSON.stringify([state.sqlServices,state.sqlRuns]),preserved);
+});
+
+test('published counts include only active subscription and API services while preserving historical state',()=>{
+  const state={apiServices:[{status:'published'},{status:'draft'}],sqlServices:[{status:'published'},{status:'disabled'}],subscriptions:[{status:'published'},{status:'paused'}]},before=JSON.stringify(state);
+  const counts=downstreamCounts(state);
+  assert.deepEqual(counts,{api:1,subscription:1});assert.equal(Object.values(counts).reduce((sum,count)=>sum+count,0),2);
+  assert.equal(JSON.stringify(state),before);assert.deepEqual(downstreamCounts({sqlServices:state.sqlServices}),{api:0,subscription:0});
 });
 
 test('navigation uses downstream label and access tabs keep API, FTP, local file order',async()=>{
