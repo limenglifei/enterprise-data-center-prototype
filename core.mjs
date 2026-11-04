@@ -1,4 +1,4 @@
-import { DEMO_METADATA, DEMO_SNAPSHOTS, DEFAULT_FILTERS } from './demo-data.mjs';
+import { DEMO_METADATA, DEMO_SNAPSHOTS, DEMO_COMPANIES, DEFAULT_FILTERS } from './demo-data.mjs';
 export { DEFAULT_FILTERS } from './demo-data.mjs';
 
 export const FIELD_DEFS = [
@@ -61,26 +61,28 @@ export function createInitialState({seed=true}={}) {
   const state = {
     schemaVersion: 1, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
     providers: [
-      {id:'qcc',name:'企查查',type:'api',enabled:true,baseUrl:'',authType:'待按厂商文档配置',connectionMode:'demo',status:'demo_ready',description:'工商基础信息 API 演示适配器；真实接入待提供 API 文档及授权。'},
-      {id:'tyc',name:'天眼查',type:'api',enabled:true,baseUrl:'',authType:'待按厂商文档配置',connectionMode:'demo',status:'demo_ready',description:'第二厂商可切换模板；未发送真实网络请求。'},
-      {id:'file',name:'本地专题文件',type:'file',enabled:true,baseUrl:'',authType:'无需鉴权',connectionMode:'file',status:'ready',description:'补充资质、规模、产业链节点；用户自行提供授权数据。'},
+      {id:'ftp_demo',name:'企业数据 FTP 信源',type:'ftp',enabled:true,connectionMode:'demo',status:'demo_ready',description:'FTP / FTPS 文件接入演示；目录和文件为虚构样例，未建立真实网络连接。',ftpConfig:{protocol:'ftps',host:'ftp.example.invalid',port:21,directory:'/enterprise',filePattern:'enterprise_*.json',username:'demo_reader',format:'json'}},
+      {id:'file',name:'离线文件本地上传',type:'file',enabled:true,baseUrl:'',authType:'无需鉴权',connectionMode:'file',status:'ready',description:'补充资质、规模、产业链节点；用户自行提供授权数据。'},
     ],
-    mappings: defaultMappings(),
+    mappings: {...defaultMappings(),ftp_demo: FIELD_DEFS.map((field,index)=>map(['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'][index],field.key,field.type==='array'?'split_values':''))},
     scripts: [
       {id:'yuan_to_wan',name:'金额转换：元 → 万元',version:2,status:'published',description:'无单位数值按元；带元、万、亿单位的人民币字符串按显式单位解析。拒绝未知币种，不自动换汇。',code:capitalScriptCode(0.0001)},
       {id:'capital_to_wan',name:'注册资本标准化：万元',version:1,status:'published',description:'无单位数值按万元；带元、万、亿单位的人民币字符串按显式单位解析。拒绝未知币种，不自动换汇。',code:capitalScriptCode(1)},
       {id:'date_iso',name:'日期标准化',version:1,status:'published',description:'接受 YYYY/MM/DD、YYYY-MM-DD 或毫秒时间戳；时间戳按北京时间输出 YYYY-MM-DD。',code:'if (value == null || value === "") return null; if (typeof value === "string" && /^\\d{4}[-/]\\d{2}[-/]\\d{2}/.test(value)) { const s = value.slice(0, 10).replaceAll("/", "-"); const d = new Date(s + "T00:00:00Z"); if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error("日期格式不正确"); return s; } const d = new Date(Number(value) + 8 * 3600000); if (Number.isNaN(d.getTime())) throw new Error("日期格式不正确"); return d.toISOString().slice(0, 10);'},
       {id:'split_values',name:'多值拆分与去重',version:1,status:'published',description:'按中文分号、分号、中文逗号或英文逗号拆分，清除空项。',code:'return [...new Set((Array.isArray(value) ? value : String(value ?? "").split(/[；;，,]/)).map(x => String(x).trim()).filter(Boolean))];'},
     ],
-    priorities: Object.fromEntries(FIELD_DEFS.map(f => [f.key,f.group === '专题补充' ? ['file','qcc','tyc'] : ['qcc','tyc','file']])),
+    priorities: Object.fromEntries(FIELD_DEFS.map(f => [f.key,f.group === '专题补充' ? ['file','ftp_demo'] : ['ftp_demo','file']])),
     schedules: {
-      qcc:{enabled:true,mode:'incremental',frequency:'daily',intervalHours:24,time:'02:00',lastCursor:null,nextRunAt:null,description:'全量按中心企业清单逐企刷新；增量使用变更窗口。'},
-      tyc:{enabled:false,mode:'incremental',frequency:'weekly',intervalHours:168,time:'03:00',lastCursor:null,nextRunAt:null},
+      ftp_demo:{enabled:false,mode:'incremental',frequency:'manual',intervalHours:1,time:'02:00',lastCursor:null,nextRunAt:null},
       file:{enabled:false,mode:'full',frequency:'manual',intervalHours:0,time:'',lastCursor:null,nextRunAt:null},
     },
     rawRecords:[],records:[],tasks:[],serviceLogs:[],fieldSourceOverrides:{},
   };
-  if(seed) for(const sourceId of ['qcc','tyc','file']) applyBatch(state,{sourceId,rows:clone(DEMO_SNAPSHOTS[sourceId].v1),mode:'full',now:'2026-10-27T09:00:00+08:00'});
+  if(seed) {
+    const rows=DEMO_COMPANIES.slice(0,24).map(company=>({...Object.fromEntries(state.mappings.ftp_demo.map(mapping=>[mapping.sourceField,company[mapping.targetField]])),sourceUpdatedAt:DEMO_METADATA.baselineAt,_synthetic:true}));
+    applyBatch(state,{sourceId:'ftp_demo',rows,mode:'full',now:'2026-10-27T09:00:00+08:00'});
+    applyBatch(state,{sourceId:'file',rows:clone(DEMO_SNAPSHOTS.file.v1),mode:'full',now:'2026-10-27T09:00:00+08:00'});
+  }
   return state;
 }
 
@@ -179,6 +181,7 @@ function sourceTimestamp(row,now) {
 /** Mutates state; every upsert is idempotent by source + normalized credit code. */
 export function applyBatch(state,{sourceId,rows,mode='incremental',runScript,now,windowStart,windowEnd}={}) {
   const startedAt=nowIso(now), provider=state.providers.find(p => p.id===sourceId);
+  if(provider?.type==='api'||provider?.retired)throw new Error('上游 API 对接已移除，历史信源不可继续接入');
   if(!provider) throw new Error(`未知数据源：${sourceId}`);
   if(!provider.enabled) throw new Error('数据源已停用');
   if(!['full','incremental'].includes(mode)) throw new Error('更新模式仅支持 full 或 incremental');
@@ -312,6 +315,7 @@ function validateFieldOverrideTarget(state,recordId,field,now){
 export function setFieldSourceOverride(state,recordId,field,sourceId,{now}={}){
   const record=validateFieldOverrideTarget(state,recordId,field,now);
   if(typeof sourceId!=='string'||!state.providers.some(provider=>provider.id===sourceId))throw new Error('指定信源不存在');
+  if(state.providers.some(provider=>provider.id===sourceId&&(provider.type==='api'||provider.retired)))throw new Error('历史 API 信源已停用，不可新增手动选源配置');
   const candidates=state.rawRecords.filter(raw=>raw.recordId===recordId&&raw.sourceId===sourceId&&Object.hasOwn(raw.values,field)).sort((a,b)=>Date.parse(b.sourceUpdatedAt)-Date.parse(a.sourceUpdatedAt));
   const candidate=candidates[0];
   if(!candidate)throw new Error('该信源没有当前企业此字段的候选值');
