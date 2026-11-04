@@ -1,114 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialState, applyBatch } from '../public/prototype/core.mjs';
-import { upgradeSourceState, makeApiSource, extractResponseRows, resolveRequestParameters, validateApiSourceConfig, getDemoResponse, getRequestContext } from '../public/prototype/source-config.mjs';
+import {createInitialState,applyBatch,setFieldSourceOverride,recomputeRecords} from '../public/prototype/core.mjs';
+import {createInitialState as createFileFixture} from './fixtures/file-schema-workspace.mjs';
+import {upgradeSourceState,isConfigurableSource} from '../public/prototype/source-config.mjs';
+import {upgradeFtpSources,createFtpSource,importFtpFile} from '../public/prototype/ftp-sources.mjs';
+import {upgradeUpdateJobs,createUpdateJob,dueUpdateJob,renderUpdateJobs,handleUpdateJobAction} from '../public/prototype/update-jobs.mjs';
+import {executeUpdateJob} from '../public/prototype/update-execution.mjs';
+const NOW='2026-11-04T00:00:00Z';
+const upgrade=state=>{upgradeSourceState(state);upgradeFtpSources(state);upgradeUpdateJobs(state,NOW);return state;};
+function historical(){
+ const state=createFileFixture();for(const p of state.providers)if(p.id!=='file')p.type='api';
+ state.apiServices=[{id:'retained-service',status:'published'}];state.subscriptions=[{id:'retained-subscription',status:'published'}];
+ state.fieldSourceOverrides={[state.records[0].id]:{registeredCapitalWan:{sourceId:'tyc',updatedAt:NOW}}};
+ state.updateJobs=[{id:'old_job',name:'历史任务',sourceId:'qcc',mode:'incremental',enabled:true,frequency:'daily',time:'02:00',nextRunAt:'2026-10-29T00:00:00Z',lastCursor:'2026-10-28T00:00:00Z',scope:{type:'all'}}];state.updateJobsVersion=1;return state;
+}
 
-test('migration retains enterprise records, scripts, custom priorities and mappings; removes obsolete managed lists', () => {
-  const state = createInitialState();
-  const records = JSON.stringify(state.records), scripts = JSON.stringify(state.scripts), mappings = JSON.stringify(state.mappings.qcc);
-  state.priorities.registeredCapitalWan = ['tyc', 'file', 'qcc'];
-  state.providers[0].managedKeywords = ['旧企业'];
-  state.providers[2].managedKeywords = ['旧文件'];
-  state.providers[1].enabled = false;
-  assert.equal(upgradeSourceState(state), state);
-  assert.equal(state.records.length, 24); assert.equal(state.rawRecords.length, 72);
-  assert.equal(JSON.stringify(state.records), records); assert.equal(JSON.stringify(state.scripts), scripts); assert.equal(JSON.stringify(state.mappings.qcc), mappings);
-  assert.deepEqual(state.priorities.registeredCapitalWan, ['tyc', 'file', 'qcc', 'qxb']);
-  assert.equal(state.providers.find(provider => provider.id === 'tyc').enabled, false);
-  assert.ok(state.providers.every(provider => !Object.hasOwn(provider, 'managedKeywords')));
-  assert.deepEqual(state.uploadRecords, []);
-  const once = JSON.stringify(state); upgradeSourceState(state); assert.equal(JSON.stringify(state), once);
+test('fresh workspace seeds usable file sources, enterprise data and provenance',()=>{
+ const state=upgrade(createInitialState());assert.equal(state.records.length,24);assert.ok(state.providers.every(isConfigurableSource));assert.ok(state.providers.some(p=>p.type==='ftp'));assert.ok(state.providers.some(p=>p.type==='file'));
+ assert.ok(state.records.every(r=>r.lineage.enterpriseName.selected.sourceId==='ftp_demo'));assert.ok(state.rawRecords.length>24);
 });
 
-test('additional systems retain their own config and are appended once to every field priority', () => {
-  const state = createInitialState();
-  const created = makeApiSource({ id: 'internal_erp', name: '内部 ERP', template: 'custom' });
-  created.provider.baseUrl = 'https://example.com/custom';
-  state.providers.push(created.provider);
-  state.mappings.internal_erp = [{ sourceField: 'code', targetField: 'creditCode', enabled: true }];
-  upgradeSourceState(state); upgradeSourceState(state);
-  assert.equal(state.providers.find(provider => provider.id === 'internal_erp').baseUrl, 'https://example.com/custom');
-  assert.equal(state.mappings.internal_erp.length, 1);
-  assert.ok(Object.values(state.priorities).every(ids => ids.includes('internal_erp') && new Set(ids).size === ids.length));
+test('legacy API migration preserves stored values, identities, raw evidence, history, pins and downstream services',()=>{
+ const state=historical(),keys=['records','rawRecords','tasks','scripts','fieldSourceOverrides','apiServices','subscriptions'];const before=Object.fromEntries(keys.map(key=>[key,JSON.stringify(state[key])])),oldMappings=structuredClone(state.mappings);upgrade(state);
+ for(const [id,mappings] of Object.entries(oldMappings))assert.deepEqual(state.mappings[id],mappings);
+ for(const key of keys)assert.equal(JSON.stringify(state[key]),before[key],key);
+ for(const p of state.providers.filter(p=>p.type==='api')){assert.equal(p.enabled,false);assert.equal(p.retired,true);assert.equal(isConfigurableSource(p),false);assert.equal(state.schedules[p.id].enabled,false);}
+ assert.equal(state.updateJobs[0].retired,true);assert.equal(state.updateJobs[0].lastCursor,'2026-10-28T00:00:00Z');assert.equal(dueUpdateJob(state,NOW),null);assert.doesNotMatch(renderUpdateJobs(state),/old_job|历史任务/);
+ const once=JSON.stringify(state);upgrade(state);assert.equal(JSON.stringify(state),once);
 });
 
-test('all demo wrappers match the configured response path and QXB uses explicitly neutral synthetic fields', () => {
-  const state = upgradeSourceState(createInitialState());
-  for (const id of ['qcc', 'tyc', 'qxb']) {
-    const provider = state.providers.find(item => item.id === id);
-    const v1 = extractResponseRows(getDemoResponse(state, id, 'v1'), provider.responsePath);
-    const v2 = extractResponseRows(getDemoResponse(state, id, 'v2'), provider.responsePath);
-    assert.equal(v1.length, 24); assert.ok(v2.length > v1.length);
-    assert.equal(validateApiSourceConfig(provider).valid, true);
-  }
-  const provider = state.providers.find(item => item.id === 'qxb');
-  assert.match(provider.description, /非启信宝官方/);
-  const task = applyBatch(state, { sourceId: 'qxb', rows: extractResponseRows(getDemoResponse(state, 'qxb'), provider.responsePath), mode: 'full' }).task;
-  assert.equal(task.added, 24); assert.equal(task.newEnterprises, 0); assert.equal(state.records.length, 24);
+test('retired API tasks and sources cannot execute even when enabled is manually restored',async()=>{
+ const state=upgrade(historical()),job=state.updateJobs[0];job.enabled=true;state.providers.find(p=>p.id==='qcc').enabled=true;let calls=0;const before=JSON.stringify(state);
+ await assert.rejects(executeUpdateJob(state,job.id,{now:NOW,loadInput:async()=>{calls++;return {rows:[]};}}),/停用/);assert.equal(calls,0);assert.equal(JSON.stringify(state),before);
+ assert.throws(()=>applyBatch(state,{sourceId:'qcc',rows:[],now:NOW}),/API/);assert.throws(()=>createUpdateJob(state,{name:'不能恢复',sourceId:'qcc',mode:'full',frequency:'manual',enabled:true}),/FTP/);
+ assert.throws(()=>setFieldSourceOverride(state,state.records[0].id,'legalPerson','qcc'),/停用/);
+ const notices=[];await handleUpdateJobAction('update-job-toggle',{dataset:{id:job.id}},{getState:()=>state,toast:message=>notices.push(message)});assert.match(notices[0],/停用/);assert.equal(dueUpdateJob(state,NOW),null);
 });
 
-test('edited demo JSON is used instead of a built-in fixture and invalid JSON is explicit', () => {
-  const state = upgradeSourceState(createInitialState({ seed: false }));
-  const provider = state.providers.find(item => item.id === 'qxb');
-  provider.demoResponse = '{"data":{"items":[{"enterpriseName":"演示自定义有限公司","creditCode":"DEMO-CUSTOM"}]}}';
-  assert.equal(extractResponseRows(getDemoResponse(state, 'qxb', 'v2'), provider.responsePath)[0].creditCode, 'DEMO-CUSTOM');
-  provider.demoResponse = '{'; assert.throws(() => getDemoResponse(state, 'qxb'), /JSON/);
-});
-
-test('response root supports array or singleton objects, never silently accepts wrong paths or expressions', () => {
-  assert.deepEqual(extractResponseRows({ data: { item: { creditCode: 'DEMO-1' } } }, '$.data.item'), [{ creditCode: 'DEMO-1' }]);
-  assert.deepEqual(extractResponseRows([{ name: '演示' }], '$'), [{ name: '演示' }]);
-  assert.deepEqual(extractResponseRows({ data: [] }, 'data'), []);
-  for (const path of ['data.nope', 'data..items', 'data.items[0]', '__proto__.items', 'constructor', 'data.*']) assert.throws(() => extractResponseRows({ data: { items: [] } }, path), /根路径/);
-  assert.throws(() => extractResponseRows({ data: [null] }, 'data'), /对象/);
-  assert.throws(() => extractResponseRows({ data: 'x' }, 'data'), /对象/);
-});
-
-test('request parameter substitution resolves each location without evaluation, preserving scalar types', () => {
-  const provider = makeApiSource({ id: 'custom' }).provider;
-  provider.requestParams = [
-    { name: 'keyword', location: 'query', value: '{{keyword}}', required: true },
-    { name: 'page', location: 'query', value: '{{page}}' },
-    { name: 'X-Company', location: 'header', value: '企业 {{enterpriseName}} / {{creditCode}}' },
-    { name: 'since', location: 'body', value: '{{updatedAfter}}' },
-    { name: 'size', location: 'body', value: '{{pageSize}}' },
-    { name: 'disabled', location: 'query', value: '{{unknown}}', enabled: false },
-  ];
-  const resolved = resolveRequestParameters(provider, { keyword: 'DEMO-CN-1', enterpriseName: '演示企业', creditCode: 'DEMO-CN-1', updatedAfter: '2026-10-27', page: 2, pageSize: 50 });
-  assert.deepEqual(resolved, { query: { keyword: 'DEMO-CN-1', page: 2 }, headers: { 'X-Company': '企业 演示企业 / DEMO-CN-1' }, body: { since: '2026-10-27', size: 50 } });
-  assert.throws(() => resolveRequestParameters(provider, {}), /必填参数 keyword/);
-  provider.requestParams[0].value = '{{process.exit()}}';
-  assert.throws(() => resolveRequestParameters(provider, {}), /不支持的占位符/);
-});
-
-test('parameter and return field validation catches duplicate names, missing required values and invalid root path', () => {
-  const provider = makeApiSource({ id: 'custom' }).provider;
-  provider.requestParams.push({ name: 'keyword', location: 'query', value: 'other' });
-  assert.throws(() => resolveRequestParameters(provider, {}), /重复/);
-  provider.requestParams = [{ name: 'X-Token', location: 'header', value: 'one' }, { name: 'x-token', location: 'header', value: 'two' }];
-  assert.throws(() => resolveRequestParameters(provider, {}), /重复/);
-  provider.requestParams = [{ name: 'must', value: '', required: true }];
-  provider.responsePath = 'data.items[]';
-  const validation = validateApiSourceConfig(provider);
-  assert.equal(validation.valid, false); assert.match(validation.errors.join(' '), /必填参数/); assert.match(validation.errors.join(' '), /根路径/);
-  provider.requestParams = [];
-  provider.responsePath = 'data.items';
-  provider.demoResponse = '{"data":{"items":[{"enterpriseName":"演示缺代码有限公司"}]}}';
-  assert.match(validateApiSourceConfig(provider).errors.join(' '), /必填返回字段：creditCode/);
-});
-
-test('request context ignores removed test keyword drafts and uses explicit keywords or existing center entities', () => {
-  const state = upgradeSourceState(createInitialState());
-  const provider = state.providers[0];
-  let context = getRequestContext(state, provider);
-  assert.equal(context.keyword, state.records[0].creditCode);
-  provider.testKeyword = state.records[1].enterpriseName;
-  context = getRequestContext(state, provider, { page: 3 });
-  assert.equal(context.keyword, state.records[0].creditCode);
-  assert.equal(context.creditCode, state.records[0].creditCode); assert.equal(context.page, 3);
-  context = getRequestContext(state, provider, { keyword: state.records[1].enterpriseName });
-  assert.equal(context.keyword, state.records[1].enterpriseName);
-  assert.equal(context.creditCode, state.records[1].creditCode);
-  context = getRequestContext(state, provider, { keyword: '完全自定义关键字' });
-  assert.equal(context.keyword, '完全自定义关键字'); assert.equal(context.creditCode, '');
+test('activity rankings stay ahead of historical fallback for initial upgrade and later new FTP sources',()=>{
+ const state=upgrade(historical());createFtpSource(state,{id:'new_ftp',name:'新文件来源'});
+ for(const order of Object.values(state.priorities)){assert.ok(order.indexOf('ftp_demo')<order.indexOf('qcc'));assert.ok(order.indexOf('new_ftp')<order.indexOf('qcc'));}
+ const existing=JSON.stringify(state.records);upgrade(state);assert.equal(JSON.stringify(state.records),existing);
+ // Existing pins retain the old source. Other automatic fields use current sources
+ // once a normal update or explicit recomputation happens.
+ recomputeRecords(state,{now:NOW});assert.equal(state.records[0].lineage.registeredCapitalWan.selected.sourceId,'tyc');
+ assert.equal(state.records[0].lineage.legalPerson.selected.sourceId,'qcc');
+ importFtpFile(state,'ftp_demo','full-v1',{mode:'full',now:NOW});assert.equal(state.records[0].lineage.legalPerson.selected.sourceId,'ftp_demo');assert.equal(state.records[0].lineage.registeredCapitalWan.selected.sourceId,'tyc');
 });

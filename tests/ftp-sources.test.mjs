@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createInitialState,recomputeRecords} from '../public/prototype/core.mjs';
+import {recomputeRecords} from '../public/prototype/core.mjs';
+import {createInitialState} from './fixtures/file-schema-workspace.mjs';
 import {upgradeFtpSources,createFtpSource,validateFtpConfig,getFtpFiles,importFtpFile,validateFtpMappings,renderFtpSources,selectFtpSource} from '../public/prototype/ftp-sources.mjs';
 
 const workspace=()=>upgradeFtpSources(createInitialState({seed:false}));

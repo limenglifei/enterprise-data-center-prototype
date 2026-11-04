@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createInitialState, applyBatch, getLineage } from '../public/prototype/core.mjs';
+import {applyBatch, getLineage} from '../public/prototype/core.mjs';
+import {createInitialState} from './fixtures/file-schema-workspace.mjs';
 import { DEMO_SNAPSHOTS } from '../public/prototype/demo-data.mjs';
 import { TEMPLATE_HEADERS, validateTemplateRows, applyTemplateBatch } from '../public/prototype/template-import.mjs';
 

@@ -64,10 +64,10 @@ test('published counts include only active subscription and API services while p
   assert.equal(JSON.stringify(state),before);assert.deepEqual(downstreamCounts({sqlServices:state.sqlServices}),{api:0,subscription:0});
 });
 
-test('navigation uses downstream label and access tabs keep API, FTP, local file order',async()=>{
+test('navigation keeps downstream services while upstream has only two file access tabs',async()=>{
   const html=await readFile(new URL('../public/prototype/index.html',import.meta.url),'utf8');
   const app=await readFile(new URL('../public/prototype/app.js',import.meta.url),'utf8');
   assert.match(html,/data-nav="services" title="下游服务"/);
-  assert.ok(app.indexOf('data-mode="api">API 对接')<app.indexOf('data-mode="ftp">FTP 对接'));
-  assert.ok(app.indexOf('data-mode="ftp">FTP 对接')<app.indexOf('data-mode="file">本地文件上传'));
+  assert.ok(app.indexOf('data-mode="ftp">FTP/FTPS 对接')<app.indexOf('data-mode="file">离线文件本地上传'));
+  assert.doesNotMatch(app,/data-mode="api">API 对接|新增 API 对接|create-api|connection-form/);
 });

@@ -1,28 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createInitialState} from '../public/prototype/core.mjs';
-import {upgradeFtpSources,renderFtpSources,selectFtpSource} from '../public/prototype/ftp-sources.mjs';
+import {upgradeFtpSources,createFtpSource,renderFtpSources,selectFtpSource} from '../public/prototype/ftp-sources.mjs';
 import {upgradeUpdateJobs,createUpdateJob,validateUpdateJob,nextJobRun,dueUpdateJob,finishUpdateJob,renderUpdateJobs,handleUpdateJobAction} from '../public/prototype/update-jobs.mjs';
 
 const NOW='2026-10-29T01:00:00Z'; // Thursday, Beijing 09:00.
-const workspace=()=>upgradeUpdateJobs(upgradeFtpSources(createInitialState({seed:false})),NOW);
-const input={name:'每日企业同步',sourceId:'qcc',mode:'incremental',frequency:'daily',time:'02:00',weekday:1,intervalHours:1,enabled:true};
+const workspace=()=>{const state=upgradeFtpSources(createInitialState({seed:false}));createFtpSource(state,{id:'ftp_second',name:'第二文件来源'});return upgradeUpdateJobs(state,NOW);};
+const input={name:'每日企业同步',sourceId:'ftp_demo',mode:'incremental',frequency:'daily',time:'02:00',weekday:1,intervalHours:1,enabled:true};
 
-test('one-time migration preserves API and FTP schedule configuration and leaves task records separate',()=>{
-  const state=upgradeFtpSources(createInitialState({seed:false}));state.schedules.qcc.lastCursor='2026-10-26T00:00:00Z';state.schedules.qcc.nextRunAt='2026-10-30T01:00:00Z';
-  state.schedules.ftp_demo={enabled:true,mode:'full',frequency:'weekly',time:'03:30',weekday:5,intervalHours:168,lastCursor:null,nextRunAt:null};
-  upgradeUpdateJobs(state,NOW);assert.equal(state.updateJobs.length,3);assert.equal(state.tasks.length,0);assert.ok(state.updateJobs.every(j=>['qcc','tyc','ftp_demo'].includes(j.sourceId)));
-  const qcc=state.updateJobs.find(j=>j.sourceId==='qcc'),ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(qcc.lastCursor,state.schedules.qcc.lastCursor);assert.equal(qcc.nextRunAt,state.schedules.qcc.nextRunAt);assert.equal(ftp.mode,'full');assert.equal(ftp.frequency,'weekly');assert.equal(ftp.time,'03:30');assert.equal(ftp.weekday,5);assert.equal(ftp.intervalHours,168);
-  const before=JSON.stringify(state);upgradeUpdateJobs(state,NOW);assert.equal(JSON.stringify(state),before);
-  state.providers.push({id:'later_api',type:'api',enabled:true});state.schedules.later_api={frequency:'daily',enabled:true,time:'04:00'};upgradeUpdateJobs(state,NOW);assert.equal(state.updateJobs.length,3,'new sources do not receive an implicit job after initial migration');
+test('initial migration creates FTP tasks and retires API jobs without overwriting their checkpoints',()=>{
+ const state=createInitialState({seed:false});state.providers.push({id:'old_api',type:'api',enabled:true});state.updateJobs=[{id:'old',sourceId:'old_api',enabled:true,nextRunAt:NOW,lastCursor:'2026-10-25T00:00:00Z'}];
+ state.schedules.ftp_demo={enabled:true,mode:'full',frequency:'weekly',time:'03:30',weekday:5,intervalHours:168,lastCursor:null,nextRunAt:null};
+ upgradeUpdateJobs(state,NOW);assert.equal(state.updateJobs.length,2);const old=state.updateJobs[0],ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(old.enabled,false);assert.equal(old.retired,true);assert.equal(old.nextRunAt,null);assert.equal(old.lastCursor,'2026-10-25T00:00:00Z');assert.equal(ftp.frequency,'weekly');assert.equal(ftp.time,'03:30');assert.equal(ftp.weekday,5);
+ const once=JSON.stringify(state);upgradeUpdateJobs(state,NOW);assert.equal(JSON.stringify(state),once);
 });
 
 test('multiple tasks may share a source and name but retain independent IDs and checkpoints',()=>{
   const state=workspace(),a=createUpdateJob(state,input,{now:NOW}),b=createUpdateJob(state,input,{now:NOW});assert.notEqual(a.id,b.id);a.lastCursor='2026-10-28T00:00:00Z';assert.equal(b.lastCursor,null);assert.equal(a.sourceId,b.sourceId);
 });
 
-test('migration retains zero interval and blank unused execution clock of manual tasks',()=>{
-  const state=upgradeFtpSources(createInitialState({seed:false}));state.schedules.ftp_demo.time='';upgradeUpdateJobs(state,NOW);const ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(ftp.intervalHours,0);assert.equal(ftp.time,'');assert.equal(ftp.nextRunAt,null);
+test('manual migration creates a task with no due time',()=>{
+  const state=upgradeFtpSources(createInitialState({seed:false}));state.schedules.ftp_demo.time='';upgradeUpdateJobs(state,NOW);const ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(ftp.frequency,'manual');assert.equal(ftp.nextRunAt,null);
 });
 
 test('task creation rejects invalid name, source, execution clock, frequency and interval without mutation',()=>{
@@ -45,9 +43,9 @@ test('manual and paused jobs have no due time; hourly intervals advance strictly
 
 test('due selection returns earliest enabled scheduled job and excludes missing/disabled sources',()=>{
   const state=workspace();state.updateJobs=[];
-  const a=createUpdateJob(state,input,{now:NOW}),b=createUpdateJob(state,{...input,sourceId:'tyc'},{now:NOW}),manual=createUpdateJob(state,{...input,frequency:'manual'},{now:NOW});
+  const a=createUpdateJob(state,input,{now:NOW}),b=createUpdateJob(state,{...input,sourceId:'ftp_second'},{now:NOW}),manual=createUpdateJob(state,{...input,frequency:'manual'},{now:NOW});
   a.nextRunAt='2026-10-28T01:00:00Z';b.nextRunAt='2026-10-27T01:00:00Z';manual.nextRunAt='2026-10-20T00:00:00Z';assert.equal(dueUpdateJob(state,NOW).id,b.id);
-  state.providers.find(p=>p.id==='tyc').enabled=false;assert.equal(dueUpdateJob(state,NOW).id,a.id);a.enabled=false;assert.equal(dueUpdateJob(state,NOW),null);
+  state.providers.find(p=>p.id==='ftp_second').enabled=false;assert.equal(dueUpdateJob(state,NOW).id,a.id);a.enabled=false;assert.equal(dueUpdateJob(state,NOW),null);
 });
 
 test('successful completion advances only the selected job cursor and never rolls backward',()=>{
@@ -57,7 +55,7 @@ test('successful completion advances only the selected job cursor and never roll
 });
 
 test('explicit null cursor does not fall back to a different source job checkpoint',()=>{
-  const state=workspace(),job=createUpdateJob(state,input,{now:NOW});state.schedules.qcc.lastCursor='2026-10-28T00:00:00Z';
+  const state=workspace(),job=createUpdateJob(state,input,{now:NOW});state.schedules.ftp_demo.lastCursor='2026-10-28T00:00:00Z';
   finishUpdateJob(state,job.id,{task:{id:'t1',status:'success'},now:NOW,cursor:null});assert.equal(job.lastCursor,null);
   finishUpdateJob(state,job.id,{task:{id:'t2',status:'success'},now:NOW});assert.equal(job.lastCursor,'2026-10-28T00:00:00Z','legacy callers without cursor can use compatibility schedule');
 });
@@ -75,7 +73,7 @@ test('manual enabled tasks call the common runner and paused tasks cannot run',a
 
 test('job catalog escapes user content, disables paused execution and makes local-file boundary explicit',()=>{
   const state=workspace(),job=createUpdateJob(state,{...input,name:'<img src=x>',enabled:false},{now:NOW}),html=renderUpdateJobs(state);
-  assert.ok(!html.includes('<img src=x>'));assert.match(html,/&lt;img/);assert.match(html,/本地文件通过模板上传/);assert.ok(html.includes(`data-action="update-job-run" data-id="${job.id}" disabled`));
+  assert.ok(!html.includes('<img src=x>'));assert.match(html,/&lt;img/);assert.match(html,/离线文件本地上传使用固定模板手动接入/);assert.ok(html.includes(`data-action="update-job-run" data-id="${job.id}" disabled`));
 });
 
 test('FTP connection screen no longer contains update mechanism or frequency controls',()=>{

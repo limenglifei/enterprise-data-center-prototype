@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createInitialState,applyBatch,recomputeRecords,filterEnterprises,exactQuery,getLineage,validateMappings,recordServiceCall,runBuiltinScript} from '../public/prototype/core.mjs';
+import {applyBatch,recomputeRecords,filterEnterprises,exactQuery,getLineage,validateMappings,recordServiceCall,runBuiltinScript} from '../public/prototype/core.mjs';
+import {createInitialState} from './fixtures/file-schema-workspace.mjs';
 import {DEMO_SNAPSHOTS,DEMO_METADATA} from '../public/prototype/demo-data.mjs';
 const copy=v=>JSON.parse(JSON.stringify(v));
 const now='2026-10-27T10:00:00+08:00';

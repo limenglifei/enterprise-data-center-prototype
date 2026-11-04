@@ -57,10 +57,7 @@ export function createPublicDemoTransport({
   async function request(url,options={}) {
     const pathname=new URL(url,globalThis.location?.href || 'https://localhost/').pathname;
     const method=(options.method || 'GET').toUpperCase();
-    if (pathname==='/api/vendor') {
-      if(method==='GET')return {qcc:{configured:false},tyc:{configured:false},publicDemo:true};
-      throw apiError(503,{error:'SERVER_NOT_DEPLOYED',message:'公开演示版未部署真实厂商 API 服务端。请部署完整后端并配置企查查或天眼查凭证后使用；本次未调用厂商接口。'});
-    }
+    if (pathname==='/api/vendor') throw apiError(410,{error:'UPSTREAM_API_REMOVED',message:'上游 API 对接已移除，请使用 FTP/FTPS 或离线文件本地上传。'});
     if(pathname==='/api/state') {
       if(method==='GET')return access();
       if(method!=='PUT')throw apiError(405,{message:'公开演示状态仅支持 GET 和 PUT。'});

@@ -38,7 +38,7 @@ export function createFtpSource(state,{id,name,...input}={}){
   state.providers.push(provider);
   state.mappings[sourceId]=FIELD_DEFS.map((f,i)=>({sourceField:SOURCE_FIELDS[i],targetField:f.key,scriptId:f.type==='array'?'split_values':'',enabled:true}));
   state.schedules[sourceId]={enabled:false,mode:'incremental',frequency:'manual',intervalHours:0,time:'02:00',lastCursor:null,nextRunAt:null,description:'FTP 调度配置已保存；真实轮询及传输由服务端执行，本原型支持手动模拟接入。'};
-  for(const field of FIELD_DEFS){state.priorities[field.key]??=[];if(!state.priorities[field.key].includes(sourceId))state.priorities[field.key].push(sourceId);}
+  for(const field of FIELD_DEFS){state.priorities[field.key]??=[];if(!state.priorities[field.key].includes(sourceId))state.priorities[field.key].push(sourceId);const history=id=>state.providers.some(p=>p.id===id&&(p.retired||p.type==='api'));state.priorities[field.key]=state.priorities[field.key].filter(id=>!history(id)).concat(state.priorities[field.key].filter(history));}
   return provider;
 }
 

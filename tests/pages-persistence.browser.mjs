@@ -23,10 +23,9 @@ export async function verifyPagesPersistence(indexedDB=globalThis.indexedDB) {
     assert(writers.filter(r=>r.status==='fulfilled').length===1,'Exactly one competing writer must commit');
     const rejected=writers.find(r=>r.status==='rejected');
     assert(rejected?.reason.status===409 && rejected.reason.data.revision===2,'Stale writer must receive latest revision with 409');
-    let denied=false;try{await reopened('/api/vendor',{method:'POST',body:'{}'});}catch(e){denied=e.status===503 && e.data.error==='SERVER_NOT_DEPLOYED';}
-    assert(denied,'Public demo must reject real vendor calls');
+    for(const method of ['GET','POST']){let denied=false;try{await reopened('/api/vendor',{method,...(method==='POST'?{body:'{}'}:{})});}catch(e){denied=e.status===410 && e.data.error==='UPSTREAM_API_REMOVED';}assert(denied,'Public demo must reject removed upstream API calls');}
     assert((await reopened('./fixtures/qcc-v1.json'))[0].fixture,'Snapshots must use the supplied real fetch transport');
-    return {passed:true,checks:6,storage:'IndexedDB',conflictRevision:2};
+    return {passed:true,checks:7,storage:'IndexedDB',conflictRevision:2};
   } finally {
     await Promise.all(connections.map(a=>a.close()));
     await new Promise((resolve,reject)=>{const req=indexedDB.deleteDatabase(databaseName);req.onsuccess=resolve;req.onerror=()=>reject(req.error);});
