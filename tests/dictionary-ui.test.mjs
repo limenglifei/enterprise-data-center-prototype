@@ -44,7 +44,7 @@ test('new FTP source keeps all active sources before retired provenance sources 
 
 test('enterprise and priority UI retain all thirteen modules, row scoped lineage and third/fourth ranks',async()=>{
  const app=await readFile(new URL('../public/prototype/app.js',import.meta.url),'utf8');
- assert.match(app,/getTableRecords\(state,r.id,table.key\)/);assert.match(app,/data-action="detail-module"/);assert.match(app,/data-row="\$\{esc\(row.id\)\}"/);assert.match(app,/getLineage\(state,id,field,\{rowId\}\)/);assert.match(app,/仅当前企业当前明细当前字段/);assert.match(app,/lineage-row-location/);assert.match(app,/横向滚动查看完整字段/);assert.match(app,/\['一','二','三','四'\]/);assert.match(app,/rules=\{\.\.\.state.priorities\}/);assert.doesNotMatch(app,/card\('专题补充'/);assert.match(app,/批量订阅推送/);assert.match(app,/标准 API 服务/);
+ assert.match(app,/getTableRecords\(state,r.id,table.key\)/);assert.match(app,/data-action="detail-module"/);assert.match(app,/data-row="\$\{esc\(row.id\)\}"/);assert.match(app,/getLineage\(state,id,field,\{rowId\}\)/);assert.match(app,/仅当前企业当前明细当前字段/);assert.match(app,/lineage-row-location/);assert.match(app,/dossier-module-stack/);assert.doesNotMatch(app,/横向滚动查看完整字段/);assert.match(app,/\['一','二','三','四'\]/);assert.match(app,/rules=\{\.\.\.state.priorities\}/);assert.doesNotMatch(app,/card\('专题补充'/);assert.match(app,/批量订阅推送/);assert.match(app,/标准 API 服务/);
 });
 
 

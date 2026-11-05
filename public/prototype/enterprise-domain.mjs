@@ -37,6 +37,7 @@ export function normalizeDomainValue(def,value){
   }
   if(typeof value==='object')throw new Error(`${def.label}必须为单值；明细数组请按 [].字段 映射`);
   const text=String(value).trim();
+  if(def.maxLength&&[...text].length>def.maxLength)throw new Error(`${def.label}最多${def.maxLength}个字符`);
   if(def.sqlType==='date'&&!/^\d{4}-\d{2}-\d{2}$/.test(text))throw new Error(`${def.label}日期须为YYYY-MM-DD`);
   if(def.type==='date'&&(!Number.isFinite(Date.parse(text))||def.sqlType==='date'&&new Date(text).toISOString().slice(0,10)!==text))throw new Error(`${def.label}日期无效`);
   return text;
@@ -137,6 +138,19 @@ function chooseField(state,enterpriseId,key,candidates,rowId){
   const manualRequested=Boolean(requestedSourceId),manualApplied=Boolean(pinned),fallback=manualRequested&&!manualApplied;
   const fallbackReason=!fallback?null:!sourceExists?'指定信源已不存在':!requested?'指定信源尚无该行该字段候选值':requested.empty?'指定信源当前值为空':'指定信源候选值无效';
   return {selected:selected?copy(selected):null,candidates:candidates.map(c=>({...c,selected:c===selected})),rule:manualApplied?'手动指定信源，跟随该行后续有效值':fallback?`${fallbackReason}；保留选择并按优先级回退`:'仅在同一业务行内按字段来源顺序取首个非空值',override:override??null,requestedSourceId,manualRequested,manualApplied,fallback,fallbackReason,selectionMode:manualApplied?'manual':fallback?'auto_fallback':'auto'};
+}
+
+/** Add nullable V2.6 columns to saved rows without rewriting source evidence or identity. */
+export function upgradeRiskEventSchema(state){
+  const keys=['enterprise_risk_event.published_date','enterprise_risk_event.publishing_authority'];
+  for(const record of state.records??[])for(const row of record.tables?.enterprise_risk_event??[]){
+    row.values??={};row.lineage??={};
+    for(const key of keys){
+      if(!Object.hasOwn(row.values,key))row.values[key]=null;
+      if(!Object.hasOwn(row.lineage,key))row.lineage[key]=chooseField(state,record.id,key,[],row.id);
+    }
+  }
+  return state;
 }
 
 export function materializeTables(state,record,raws,at){

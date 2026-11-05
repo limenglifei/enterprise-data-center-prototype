@@ -65,8 +65,11 @@ function demoRow(company,updatedAt){
     qualification_records:(company.qualifications||[]).map((name,i)=>({qualification_name:name,qualification_type:'演示荣誉资质',certificate_no:`DEMO-Q-${suffix}-${i+1}`})),
     patents:[{patent_type:'发明专利',patent_name:`演示设备控制方法${number}`,application_no:`DEMO-PA-${suffix}-1`},{patent_type:'实用新型',patent_name:`演示检测装置${number}`,application_no:`DEMO-PA-${suffix}-2`}],
     ip_summaries:[{statistics_date:'2025-12-31',patent_count:2},{statistics_date:'2026-10-26',patent_count:2}],
-    risk_events:number%3===0?[{risk_type:'演示诉讼',event_title:`演示合同纠纷${number}`}]:[],
-    risk_summaries:[{statistics_date:'2026-10-26',tax_credit_rating:'演示A级',litigation_count:number%3===0?1:0}],
+    risk_events:number===1||number%3===0?[
+      {risk_type:'演示诉讼',event_title:`演示合同纠纷${number}`,published_date:'2026-10-10',publishing_authority:'演示风险发布机构甲（虚构）'},
+      {risk_type:'演示行政处罚',event_title:`演示行政处罚${number}`,published_date:'2026-10-20',publishing_authority:'演示风险发布机构乙（虚构）'}
+    ]:[],
+    risk_summaries:[{statistics_date:'2026-10-26',tax_credit_rating:'演示A级',litigation_count:number===1||number%3===0?1:0}],
     tags:(company.chainNodes||[]).map((name,i)=>({tag_type:'CHAIN_NODE',tag_name:name,tag_code:`DEMO-TAG-${i+1}`,tag_version:'DEMO-2026'})),
     sourceUpdatedAt:updatedAt,_synthetic:true};
 }
@@ -133,7 +136,7 @@ export function handleFtpFormEvent(event,ctx){
   mapping[prop]=prop==='enabled'?target.checked:target.value;
   if((prop==='targetTable'||prop==='targetField')&&event.type==='change')delete mapping.legacyTarget;if(prop==='targetTable'&&event.type==='change'){mapping.targetField='';ctx.render?.();}return true;
 }
-function dictionaryCatalog(){return `<p class="subtle">产品批注字典：13 张表、257 个标准字段。中心生成字段不可用于厂商映射。</p><div class="dictionary-catalog">${DICTIONARY_TABLES.map(t=>`<details><summary>${esc(t.label)} · ${t.fieldCount} 字段 · ${esc(t.cardinality)}</summary><div class="table-wrap"><table><thead><tr><th>字段中文名称</th><th>标准标识</th><th>数据类型</th><th>约束</th><th>说明</th></tr></thead><tbody>${getTableFields(t.key).map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.key)}</td><td>${esc(f.sqlType||f.type)}</td><td>${f.technical?'中心生成':f.required?'必填':'可为空'}</td><td>${esc(f.description)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}</div>`;}
+function dictionaryCatalog(){return `<p class="subtle">产品批注字典：${DICTIONARY_TABLES.length} 张表、${DICTIONARY_TABLES.reduce((sum,t)=>sum+getTableFields(t.key).length,0)} 个标准字段。中心生成字段不可用于厂商映射。</p><div class="dictionary-catalog">${DICTIONARY_TABLES.map(t=>`<details><summary>${esc(t.label)} · ${t.fieldCount} 字段 · ${esc(t.cardinality)}</summary><div class="table-wrap"><table><thead><tr><th>字段中文名称</th><th>标准标识</th><th>数据类型</th><th>约束</th><th>说明</th></tr></thead><tbody>${getTableFields(t.key).map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.key)}</td><td>${esc(f.sqlType||f.type)}</td><td>${f.technical?'中心生成':f.required?'必填':'可为空'}</td><td>${esc(f.description)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}</div>`;}
 
 function remoteFiles(state,provider){
   const files=getFtpFiles(state,provider.id),history=(state.ftpFileReceipts??state.ftpImports.filter(e=>e.status==='success')).filter(e=>e.sourceId===provider.id);
@@ -157,7 +160,7 @@ export async function handleFtpAction(action,element,ctx){
   if(id&&!provider&&!['close','create','save-new','dictionary'].includes(op)){toast('FTP 信源已停用或不存在','error');return;}
   if(op==='close'){closeModal();return;}
   if(op==='select'){selectFtpSource(id);ctx.render?.();return;}
-  if(op==='dictionary'){showModal('企业数据字典 · 13表257字段',dictionaryCatalog(),button('关闭','close'),true);return;}
+  if(op==='dictionary'){showModal(`企业数据字典 · ${DICTIONARY_TABLES.length}表${DICTIONARY_TABLES.reduce((sum,t)=>sum+getTableFields(t.key).length,0)}字段`,dictionaryCatalog(),button('关闭','close'),true);return;}
   if(op==='mapping-search'){mappingSearch=document.querySelector('[data-ftp-mapping-filter="search"]')?.value||'';ctx.render?.();return;}
   if(op==='mapping-add'){mappingSearch='';draftFor(state,id).push({enabled:true,sourceField:'',targetTable:mappingModule,targetField:'',scriptId:''});ctx.render?.();return;}
   if(op==='mapping-remove'){draftFor(state,id).splice(Number(element.dataset.index),1);ctx.render?.();return;}

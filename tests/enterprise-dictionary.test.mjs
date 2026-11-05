@@ -10,8 +10,13 @@ const base=()=>createInitialState({seed:false});
 const records=(state,table)=>getTableRecords(state,state.records[0].id,table);
 const value=(record,key)=>record.values[key];
 
-test('approved dictionary contains 13 tables and 257 unique qualified keys, with explicit normalization and null defaults',()=>{
- assert.equal(DICTIONARY_TABLES.length,13);assert.equal(FIELD_DEFS.length,257);assert.equal(new Set(FIELD_DEFS.map(f=>f.key)).size,257);
+test('approved dictionary retains 257 source fields plus two V2.6 extensions in 13 tables',()=>{
+ assert.equal(DICTIONARY_TABLES.length,13);assert.equal(FIELD_DEFS.length,259);assert.equal(new Set(FIELD_DEFS.map(f=>f.key)).size,259);
+ assert.equal(DICTIONARY_META.version,'2.6');assert.equal(DICTIONARY_META.sourceFieldCount,257);assert.equal(DICTIONARY_META.extensionFieldCount,2);
+ assert.equal(FIELD_DEFS.filter(f=>f.mappable).length,159);assert.equal(FIELD_DEFS.filter(f=>f.technical).length,100);
+ assert.equal(DICTIONARY_TABLES.reduce((n,t)=>n+t.fieldCount,0),259);assert.equal(DICTIONARY_TABLES.find(t=>t.key==='enterprise_risk_event').fieldCount,16);
+ assert.equal(FIELD_DEFS.filter(f=>f.sourceRow!==null).length,257);
+ for(const name of ['published_date','publishing_authority']){const f=getDictionaryField(`enterprise_risk_event.${name}`);assert.equal(f.origin,'本轮需求 V2.6');assert.equal(f.sourceRow,null);assert.equal(f.dictionaryRow,null);assert.equal(f.required,false);assert.equal(f.default,null);assert.equal(f.mappable,true);assert.equal(f.technical,false);}
  assert.equal(DICTIONARY_META.sourceSha256,'4309F7C234B57D8348CF84D196905AA0B57BBE71F647226A6513F32C7667C130');
  for(const level of [1,2,3,4]){const f=getDictionaryField(`enterprise_industry.industry_code_l${level}`);assert.equal(f.originalKey,'enterprise_industry.industry_code');assert.ok(f.sourceRow>1);assert.ok(f.normalizationNote);}
  for(const name of ['invention_patent_count','utility_model_patent_count','design_patent_count','software_copyright_count'])assert.equal(getDictionaryField(`enterprise_intellectual_property_summary.${name}`).default,null);

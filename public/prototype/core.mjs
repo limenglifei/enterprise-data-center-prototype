@@ -64,7 +64,7 @@ function defaultMappings() {
 export function createDefaultFtpMappings(){
   const base=['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'];
   const mappings=LEGACY_FIELD_DEFS.filter(field=>!['qualifications','chainNodes'].includes(field.key)).map(field=>map(base[LEGACY_FIELD_DEFS.indexOf(field)],LEGACY_ALIAS_MAP[field.key],field.key==='registeredCapitalWan'?'wan_to_yuan':''));
-  const modules={contacts:['enterprise_contact','contact_phone','contact_email'],annual_operations:['enterprise_annual_operation','fiscal_year','annual_revenue','employee_count'],listings:['enterprise_listing','exchange_code','stock_code','stock_name'],shareholders:['enterprise_shareholder','subject_type','subject_name','direct_ownership_percent'],qualification_records:['enterprise_qualification','qualification_type','qualification_name','certificate_no'],patents:['enterprise_patent','patent_type','patent_name','application_no'],ip_summaries:['enterprise_intellectual_property_summary','statistics_date','patent_count'],risk_events:['enterprise_risk_event','risk_type','event_title'],risk_summaries:['enterprise_risk_summary','statistics_date','tax_credit_rating','litigation_count'],tags:['enterprise_tag','tag_type','tag_name','tag_code','tag_version']};
+  const modules={contacts:['enterprise_contact','contact_phone','contact_email'],annual_operations:['enterprise_annual_operation','fiscal_year','annual_revenue','employee_count'],listings:['enterprise_listing','exchange_code','stock_code','stock_name'],shareholders:['enterprise_shareholder','subject_type','subject_name','direct_ownership_percent'],qualification_records:['enterprise_qualification','qualification_type','qualification_name','certificate_no'],patents:['enterprise_patent','patent_type','patent_name','application_no'],ip_summaries:['enterprise_intellectual_property_summary','statistics_date','patent_count'],risk_events:['enterprise_risk_event','risk_type','event_title','published_date','publishing_authority'],risk_summaries:['enterprise_risk_summary','statistics_date','tax_credit_rating','litigation_count'],tags:['enterprise_tag','tag_type','tag_name','tag_code','tag_version']};
   for(const [path,[table,...fields]]of Object.entries(modules))for(const field of fields)mappings.push(map(`${path}[].${field}`,`${table}.${field}`));
   return mappings;
 }
@@ -72,7 +72,7 @@ export function createDefaultFtpProvider(id,name){return {id,name,type:'ftp',ena
 
 export function createInitialState({seed=true}={}) {
   const state = {
-    schemaVersion: 2.5, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
+    schemaVersion: 2.6, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
     providers: [
       ...[['ftp_qcc','企查查 FTP'],['ftp_qxb','启信宝 FTP'],['ftp_tyc','天眼查 FTP']].map(([id,name])=>createDefaultFtpProvider(id,name)),
       {id:'file',name:'离线文件本地上传',type:'file',enabled:true,baseUrl:'',authType:'无需鉴权',connectionMode:'file',status:'ready',description:'补充资质、规模、产业链节点；用户自行提供授权数据。'},
