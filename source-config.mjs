@@ -1,5 +1,5 @@
-import {FIELD_DEFS,LEGACY_ALIAS_MAP,createInitialState} from './core.mjs';
-import {normalizeTechnicalIds} from './enterprise-domain.mjs';
+import {FIELD_DEFS,LEGACY_ALIAS_MAP,createInitialState,createDefaultFtpMappings} from './core.mjs';
+import {normalizeTechnicalIds,upgradeRiskEventSchema} from './enterprise-domain.mjs';
 
 const copy=value=>JSON.parse(JSON.stringify(value));
 
@@ -23,6 +23,7 @@ export function upgradeSourceState(state) {
   state.schedules ??= {};
   state.priorities ??= {};
   state.uploadRecords ??= [];
+  const needsRiskExtension=Number(state.schemaVersion??0)<2.6;
   const defaults = createInitialState({seed:false});
   for(const provider of defaults.providers){
     if(state.providers.some(item=>item.id===provider.id))continue;
@@ -46,12 +47,21 @@ export function upgradeSourceState(state) {
     for(const job of state.updateJobs??[])if(job.sourceId===provider.id)Object.assign(job,{retired:true,enabled:false,nextRunAt:null});
   }
   const currentIds = state.providers.filter(isConfigurableSource).map(provider => provider.id);
+  if(needsRiskExtension){
+    const extensions=createDefaultFtpMappings().filter(m=>['enterprise_risk_event.published_date','enterprise_risk_event.publishing_authority'].includes(m.targetField));
+    const previousDefaults=createDefaultFtpMappings().filter(m=>!extensions.some(e=>e.targetField===m.targetField));
+    for(const provider of state.providers.filter(p=>p.type==='ftp'&&!p.retired)){
+      const mappings=state.mappings[provider.id]??[];
+      // Only untouched V2.5 defaults receive additional mappings. Keep every custom rule.
+      if(mappings.length===previousDefaults.length&&previousDefaults.every(d=>mappings.some(m=>m.sourceField===d.sourceField&&m.targetField===d.targetField&&(m.scriptId??'')===d.scriptId&&m.enabled!==false)))mappings.push(...copy(extensions));
+    }
+  }
   for (const field of [...FIELD_DEFS,...Object.keys(state.priorities).filter(key=>!FIELD_DEFS.some(f=>f.key===key)).map(key=>({key}))]) {
     const alias=Object.entries(LEGACY_ALIAS_MAP).find(([,key])=>key===field.key)?.[0];
     const existing = Array.isArray(state.priorities[field.key]) ? state.priorities[field.key] : Array.isArray(state.priorities[alias])?state.priorities[alias]:[];
     state.priorities[field.key] = [...new Set([...existing.filter(id => currentIds.includes(id)), ...currentIds, ...existing.filter(id => !currentIds.includes(id))])];
   }
-  state.sourceConfigVersion = 4;
-  state.schemaVersion = 2.5;
-  return normalizeTechnicalIds(state);
+  state.sourceConfigVersion = 5;
+  state.schemaVersion = 2.6;
+  return upgradeRiskEventSchema(normalizeTechnicalIds(state));
 }
