@@ -1,4 +1,5 @@
-import {FIELD_DEFS,applyBatch,validateMappings} from './core.mjs';
+import {FIELD_DEFS,LEGACY_FIELD_DEFS,LEGACY_ALIAS_MAP,createDefaultFtpMappings,applyBatch,validateMappings} from './core.mjs';
+import {DICTIONARY_TABLES,getTableFields,getDictionaryField} from './enterprise-dictionary.mjs';
 import {DEMO_COMPANIES,DEMO_METADATA} from './demo-data.mjs';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -7,7 +8,9 @@ const SOURCE_FIELDS=['company_name','credit_code','legal_person','registration_s
 const stamp=v=>v?new Date(v).toLocaleString('zh-CN',{hour12:false}):'—';
 const button=(label,action,id='',kind='secondary',extra='')=>`<button class="btn ${kind}" data-action="ftp-${action}" data-id="${esc(id)}" ${extra}>${label}</button>`;
 const options=(entries,value)=>entries.map(([key,label])=>`<option value="${esc(key)}" ${value===key?'selected':''}>${esc(label)}</option>`).join('');
-let selectedId='',selectedTab='connection';
+let selectedId='',selectedTab='connection',mappingModule='',mappingSearch='';
+const mappingDrafts=new Map();
+let mappingDraftState;
 
 export function selectFtpSource(id){selectedId=id;selectedTab='connection';}
 
@@ -36,9 +39,9 @@ export function createFtpSource(state,{id,name,...input}={}){
   const valid=validateFtpConfig(config);if(!valid.valid)throw new Error(valid.errors.join('；'));
   const provider={id:sourceId,name:sourceName,type:'ftp',enabled:true,connectionMode:'demo',status:'demo_ready',description:'FTP / FTPS 文件接入演示；目录和文件为虚构样例，未建立真实网络连接。',ftpConfig:config};
   state.providers.push(provider);
-  state.mappings[sourceId]=FIELD_DEFS.map((f,i)=>({sourceField:SOURCE_FIELDS[i],targetField:f.key,scriptId:f.type==='array'?'split_values':'',enabled:true}));
+  state.mappings[sourceId]=createDefaultFtpMappings();
   state.schedules[sourceId]={enabled:false,mode:'incremental',frequency:'manual',intervalHours:0,time:'02:00',lastCursor:null,nextRunAt:null,description:'FTP 调度配置已保存；真实轮询及传输由服务端执行，本原型支持手动模拟接入。'};
-  for(const field of FIELD_DEFS){state.priorities[field.key]??=[];if(!state.priorities[field.key].includes(sourceId))state.priorities[field.key].push(sourceId);const history=id=>state.providers.some(p=>p.id===id&&(p.retired||p.type==='api'));state.priorities[field.key]=state.priorities[field.key].filter(id=>!history(id)).concat(state.priorities[field.key].filter(history));}
+  for(const key of new Set([...FIELD_DEFS.map(field=>field.key),...Object.keys(state.priorities)])){state.priorities[key]??=[];if(!state.priorities[key].includes(sourceId))state.priorities[key].push(sourceId);const history=id=>state.providers.some(p=>p.id===id&&(p.retired||p.type==='api'));state.priorities[key]=state.priorities[key].filter(id=>!history(id)).concat(state.priorities[key].filter(history));}
   return provider;
 }
 
@@ -52,26 +55,38 @@ export function upgradeFtpSources(state){
 }
 
 function demoRow(company,updatedAt){
-  const values=FIELD_DEFS.map(f=>f.type==='array'?company[f.key].join('；'):company[f.key]);
-  return {...Object.fromEntries(SOURCE_FIELDS.map((field,i)=>[field,values[i]])),sourceUpdatedAt:updatedAt,_synthetic:true};
+  const values=LEGACY_FIELD_DEFS.map(f=>f.type==='array'?(company[f.key]||[]).join('；'):company[f.key]);
+  const number=Number(company.creditCode.match(/(\d+)$/)?.[1]||1),suffix=String(number).padStart(6,'0');
+  return {...Object.fromEntries(SOURCE_FIELDS.map((field,i)=>[field,values[i]])),
+    contacts:[{contact_phone:`0551-DEMO-${suffix}`,contact_email:`demo${number}@example.invalid`},{contact_phone:`DEMO-MOBILE-${suffix}`,contact_email:`office${number}@example.invalid`}],
+    shareholders:[{subject_type:'企业',subject_name:`演示投资企业${number}号`,direct_ownership_percent:60},{subject_type:'自然人',subject_name:`演示股东${number}号`,direct_ownership_percent:40}],
+    annual_operations:[{fiscal_year:2024,annual_revenue:12000000+number*1000,employee_count:80+number},{fiscal_year:2025,annual_revenue:15000000+number*1000,employee_count:90+number}],
+    listings:number%4===0?[{exchange_code:'DEMO',stock_code:`DEMO${suffix}`,stock_name:`演示股票${number}`}]:[],
+    qualification_records:(company.qualifications||[]).map((name,i)=>({qualification_name:name,qualification_type:'演示荣誉资质',certificate_no:`DEMO-Q-${suffix}-${i+1}`})),
+    patents:[{patent_type:'发明专利',patent_name:`演示设备控制方法${number}`,application_no:`DEMO-PA-${suffix}-1`},{patent_type:'实用新型',patent_name:`演示检测装置${number}`,application_no:`DEMO-PA-${suffix}-2`}],
+    ip_summaries:[{statistics_date:'2025-12-31',patent_count:2},{statistics_date:'2026-10-26',patent_count:2}],
+    risk_events:number%3===0?[{risk_type:'演示诉讼',event_title:`演示合同纠纷${number}`}]:[],
+    risk_summaries:[{statistics_date:'2026-10-26',tax_credit_rating:'演示A级',litigation_count:number%3===0?1:0}],
+    tags:(company.chainNodes||[]).map((name,i)=>({tag_type:'CHAIN_NODE',tag_name:name,tag_code:`DEMO-TAG-${i+1}`,tag_version:'DEMO-2026'})),
+    sourceUpdatedAt:updatedAt,_synthetic:true};
 }
 
 /** Simulated remote directory, never a network request; all files and enterprises are synthetic. */
 export function getFtpFiles(state,sourceId){
-  const p=state.providers.find(p=>p.id===sourceId&&p.type==='ftp');if(!p)throw new Error('FTP 信源不存在');
+  const p=state.providers.find(p=>p.id===sourceId&&p.type==='ftp'&&!p.retired);if(!p)throw new Error('FTP 信源不存在');
   const config=p.ftpConfig,valid=validateFtpConfig(config);if(!valid.valid)throw new Error(valid.errors.join('；'));
   const baseline=DEMO_COMPANIES.slice(0,24).map(c=>demoRow(c,DEMO_METADATA.baselineAt));
   const changed=[...DEMO_COMPANIES.slice(0,2).map((c,i)=>demoRow({...c,legalPerson:`演示 FTP 法人${i+1}`,registeredCapitalWan:c.registeredCapitalWan+100},DEMO_METADATA.changedAt)),...DEMO_COMPANIES.slice(24).map(c=>demoRow(c,DEMO_METADATA.changedAt))];
   const expression=new RegExp('^'+config.filePattern.replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'.*').replace(/\?/g,'.')+'$');
   return [{id:'full-v1',name:`enterprise_full_20261026.${config.format}`,mode:'full',modifiedAt:DEMO_METADATA.baselineAt,rows:baseline},{id:'delta-v2',name:`enterprise_incremental_20261027.${config.format}`,mode:'incremental',modifiedAt:DEMO_METADATA.changedAt,rows:changed}].map(file=>{
-    const text=config.format==='json'?JSON.stringify(file.rows,null,2):[Object.keys(file.rows[0]),...file.rows.map(row=>Object.values(row))].map(row=>row.map(value=>'"'+String(value??'').replaceAll('"','""')+'"').join(',')).join('\r\n');
+    const text=config.format==='json'?JSON.stringify(file.rows,null,2):[Object.keys(file.rows[0]),...file.rows.map(row=>Object.values(row))].map(row=>row.map(value=>'"'+String(typeof value==='object'&&value!==null?JSON.stringify(value):value??'').replaceAll('"','""')+'"').join(',')).join('\r\n');
     const key=`${config.protocol}://${config.host}:${config.port}${config.directory.replace(/\/$/,'')}/${file.name}@${file.modifiedAt}`;
     return {...file,key,text,bytes:new TextEncoder().encode(text).length,path:`${config.directory.replace(/\/$/,'')}/${file.name}`};
   }).filter(file=>expression.test(file.name));
 }
 
 export function importFtpFile(state,sourceId,fileId,{mode,runScript,preparedRows,now=new Date().toISOString()}={}){
-  const provider=state.providers.find(p=>p.id===sourceId&&p.type==='ftp');if(!provider)throw new Error('FTP 信源不存在');
+  const provider=state.providers.find(p=>p.id===sourceId&&p.type==='ftp'&&!p.retired);if(!provider)throw new Error('FTP 信源不存在');
   const file=getFtpFiles(state,sourceId).find(f=>f.id===fileId);if(!file)throw new Error('文件不存在或不符合已保存的文件名规则');
   if((state.ftpFileReceipts??state.ftpImports.filter(e=>e.status==='success')).some(entry=>entry.sourceId===sourceId&&entry.fileKey===file.key))throw new Error('该文件版本已成功接入，无需重复导入');
   if(!Number.isFinite(Date.parse(now))||Date.parse(file.modifiedAt)>Date.parse(now))throw new Error('文件修改时间晚于本次执行时间，请稍后重试');
@@ -88,7 +103,7 @@ export function importFtpFile(state,sourceId,fileId,{mode,runScript,preparedRows
 
 export function validateFtpMappings(state,id){
   const result=validateMappings(state,id),errors=[...result.errors];
-  for(const m of (state.mappings[id]??[]).filter(m=>m.enabled!==false))if(!/^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/.test(m.sourceField)||m.sourceField.split('.').some(p=>['__proto__','prototype','constructor'].includes(p)))errors.push('来源字段须为安全的字段名称或点路径');
+  for(const m of (state.mappings[id]??[]).filter(m=>m.enabled!==false))if(!/^[a-zA-Z_][a-zA-Z0-9_]*(?:\[\])?(?:\.[a-zA-Z_][a-zA-Z0-9_]*(?:\[\])?)*$/.test(m.sourceField)||m.sourceField.split('.').some(p=>['__proto__','prototype','constructor'].includes(p.replace(/\[\]$/,''))))errors.push('来源字段须为安全的字段名称或点路径');
   return {valid:errors.length===0,errors:[...new Set(errors)]};
 }
 
@@ -102,9 +117,23 @@ function readConfig(){
   return {id:String(form.get('id')??''),name:String(form.get('name')??'').trim(),protocol:form.get('protocol'),host:String(form.get('host')??'').trim(),port:Number(form.get('port')),username:String(form.get('username')??'').trim(),directory:String(form.get('directory')??'').trim(),format:form.get('format'),filePattern:String(form.get('filePattern')??'').trim()};
 }
 
+function draftFor(state,id){if(mappingDraftState!==state){mappingDrafts.clear();mappingDraftState=state;}if(!mappingDrafts.has(id))mappingDrafts.set(id,copy(state.mappings[id]??[]).map(m=>{const field=getDictionaryField(m.targetField)||getDictionaryField(LEGACY_ALIAS_MAP[m.targetField]);return {...m,targetTable:field?.table||'',targetField:field?.key||m.targetField,...(!getDictionaryField(m.targetField)?{legacyTarget:m.targetField}:{})};}));return mappingDrafts.get(id);}
+function matchingMapping(m){const field=getDictionaryField(m.targetField),q=mappingSearch.trim().toLowerCase();return (!mappingModule||m.targetTable===mappingModule)&&(!q||[m.sourceField,m.targetField,m.legacyTarget,field?.label,field?.group].some(v=>String(v||'').toLowerCase().includes(q)));}
+function mappingFieldOptions(table,key){return options([['','请选择目标字段'],...getTableFields(table).filter(f=>f.mappable).map(f=>[f.key,`${f.label}${f.required?' *':''} · ${f.key} · ${f.sqlType||f.type}`])],key);}
 function mappingTable(state,provider){
-  return `<p class="subtle">将远端文件的来源字段映射至中心标准字段；转换逻辑在脚本管理独立维护，仅可绑定已发布脚本。sourceUpdatedAt 是增量检查点字段，样例使用 ISO 时间。</p><form id="ftp-mapping-form" class="section-gap"><div class="table-wrap"><table class="mapping-table"><thead><tr><th>启用</th><th>来源字段</th><th>中心标准字段</th><th>加工脚本</th></tr></thead><tbody>${FIELD_DEFS.map(field=>{const m=(state.mappings[provider.id]??[]).find(m=>m.targetField===field.key)||{sourceField:'',enabled:false,scriptId:''};return `<tr data-ftp-field="${field.key}"><td><input aria-label="启用${field.label}" name="${field.key}_enabled" type="checkbox" ${m.enabled!==false?'checked':''}></td><td><input aria-label="${field.label}来源字段" name="${field.key}_source" value="${esc(m.sourceField)}"></td><td>${esc(field.label)}${field.required?' *':''}<small class="subtle"> ${field.key}</small></td><td><select aria-label="${field.label}加工脚本" name="${field.key}_script">${options([['','不加工'],...state.scripts.filter(s=>s.status==='published').map(s=>[s.id,`${s.name} · v${s.version}`])],m.scriptId)}</select></td></tr>`;}).join('')}</tbody></table></div></form><div class="panel-actions">${button('保存字段映射','save-mappings',provider.id,'primary')}</div>`;
+  const draft=draftFor(state,provider.id),visible=draft.map((m,index)=>({m,index})).filter(({m})=>matchingMapping(m));
+  return `<p class="subtle">先选目标子表，再选该表标准字段。来源集合路径可使用 contacts[].contact_phone；中心生成字段仅供字典查看，不接受厂商覆盖。带 * 的字段按该模块接入要求校验。</p><div class="dictionary-toolbar section-gap"><div class="form-field"><label>按目标模块筛选</label><select data-ftp-mapping-filter="module">${options([['','全部13个模块'],...DICTIONARY_TABLES.map(t=>[t.key,`${t.label}（${t.fieldCount}字段）`])],mappingModule)}</select></div><div class="form-field"><label>搜索来源或标准字段</label><input data-ftp-mapping-filter="search" value="${esc(mappingSearch)}" placeholder="中文字段 / table.field / 来源路径"></div><div class="actions">${button('搜索','mapping-search',provider.id)}${button('查看完整字典','dictionary',provider.id)}${button('新增映射行','mapping-add',provider.id,'primary')}</div></div><form id="ftp-mapping-form" class="section-gap"><div class="table-wrap"><table class="mapping-table dictionary-mapping-table"><thead><tr><th>启用</th><th>来源字段 / 集合路径</th><th>目标子表</th><th>目标字段</th><th>加工脚本</th><th>操作</th></tr></thead><tbody>${visible.map(({m,index})=>`<tr data-ftp-mapping-index="${index}"><td><input aria-label="启用第${index+1}行映射" data-mapping-prop="enabled" type="checkbox" ${m.enabled!==false?'checked':''}></td><td><input aria-label="第${index+1}行来源字段" data-mapping-prop="sourceField" value="${esc(m.sourceField)}" placeholder="如 contacts[].contact_phone"></td><td><select aria-label="第${index+1}行目标子表" data-mapping-prop="targetTable">${options([['','请选择目标子表'],...DICTIONARY_TABLES.map(t=>[t.key,`${t.label} · ${t.key}`])],m.targetTable)}</select></td><td><select aria-label="第${index+1}行目标字段" data-mapping-prop="targetField" ${m.targetTable?'':'disabled'}>${mappingFieldOptions(m.targetTable,m.targetField)}</select>${m.targetField?`<small class="field-key mapping-selected-field">${esc(m.targetField)} · ${esc(getDictionaryField(m.targetField)?.sqlType||getDictionaryField(m.targetField)?.type||'')}</small>`:''}${m.legacyTarget?'<small class="subtle">历史映射：保留原字段及加工规则，重新选择目标后按新标准保存。</small>':''}</td><td><select aria-label="第${index+1}行加工脚本" data-mapping-prop="scriptId">${options([['','不加工'],...state.scripts.filter(s=>s.status==='published').map(s=>[s.id,`${s.name} · v${s.version}`])],m.scriptId)}</select></td><td>${button('删除','mapping-remove',provider.id,'ghost small',`data-index="${index}"`)}</td></tr>`).join('')||'<tr><td colspan="6" class="empty">当前筛选没有映射。可调整筛选，或新增映射行。</td></tr>'}</tbody></table></div></form><div class="panel-actions"><span class="subtle">显示 ${visible.length} / ${draft.length} 行映射 · 保存包含全部模块的草稿</span>${button('保存字段映射','save-mappings',provider.id,'primary')}</div>`;
 }
+export function handleFtpFormEvent(event,ctx){
+  const target=event.target,state=ctx.getState();if(!state)return false;const provider=state.providers.find(p=>p.id===selectedId&&p.type==='ftp'&&!p.retired);if(!provider)return false;
+  if(target.matches?.('[data-ftp-mapping-filter="module"]')&&event.type==='change'){mappingModule=target.value;ctx.render?.();return true;}
+  if(target.matches?.('[data-ftp-mapping-filter="search"]')){mappingSearch=target.value;return true;}
+  const row=target.closest?.('[data-ftp-mapping-index]'),prop=target.dataset?.mappingProp;if(!row||!prop)return false;
+  const mapping=draftFor(state,provider.id)[Number(row.dataset.ftpMappingIndex)];if(!mapping)return false;
+  mapping[prop]=prop==='enabled'?target.checked:target.value;
+  if((prop==='targetTable'||prop==='targetField')&&event.type==='change')delete mapping.legacyTarget;if(prop==='targetTable'&&event.type==='change'){mapping.targetField='';ctx.render?.();}return true;
+}
+function dictionaryCatalog(){return `<p class="subtle">产品批注字典：13 张表、257 个标准字段。中心生成字段不可用于厂商映射。</p><div class="dictionary-catalog">${DICTIONARY_TABLES.map(t=>`<details><summary>${esc(t.label)} · ${t.fieldCount} 字段 · ${esc(t.cardinality)}</summary><div class="table-wrap"><table><thead><tr><th>字段中文名称</th><th>标准标识</th><th>数据类型</th><th>约束</th><th>说明</th></tr></thead><tbody>${getTableFields(t.key).map(f=>`<tr><td>${esc(f.label)}</td><td class="mono">${esc(f.key)}</td><td>${esc(f.sqlType||f.type)}</td><td>${f.technical?'中心生成':f.required?'必填':'可为空'}</td><td>${esc(f.description)}</td></tr>`).join('')}</tbody></table></div></details>`).join('')}</div>`;}
 
 function remoteFiles(state,provider){
   const files=getFtpFiles(state,provider.id),history=(state.ftpFileReceipts??state.ftpImports.filter(e=>e.status==='success')).filter(e=>e.sourceId===provider.id);
@@ -116,7 +145,7 @@ function importHistory(state,provider){
 }
 
 export function renderFtpSources(state){
-  const sources=state.providers.filter(p=>p.type==='ftp'),provider=sources.find(p=>p.id===selectedId)||sources[0];
+  const sources=state.providers.filter(p=>p.type==='ftp'&&!p.retired),provider=sources.find(p=>p.id===selectedId)||sources[0];
   if(!provider)return `<div class="card"><div class="card-body"><h2>FTP 对接</h2><p class="subtle">通过文件传输接入企业数据。</p>${button('新增 FTP 对接','create','','primary')}</div></div>`;
   selectedId=provider.id;
   let content=selectedTab==='mappings'?mappingTable(state,provider):selectedTab==='files'?remoteFiles(state,provider):selectedTab==='history'?importHistory(state,provider):`${connectionForm(provider)}<div class="panel-actions">${button('模拟测试连接','test',provider.id)}${button('保存配置','save-config',provider.id,'primary')}</div>`;
@@ -124,9 +153,14 @@ export function renderFtpSources(state){
 }
 
 export async function handleFtpAction(action,element,ctx){
-  const {getState,mutate,toast,showModal,closeModal}=ctx,op=action.replace(/^ftp-/,''),id=element.dataset.id,state=getState(),provider=state.providers.find(p=>p.id===id&&p.type==='ftp');
+  const {getState,mutate,toast,showModal,closeModal}=ctx,op=action.replace(/^ftp-/,''),id=element.dataset.id,state=getState(),provider=state.providers.find(p=>p.id===id&&p.type==='ftp'&&!p.retired);
+  if(id&&!provider&&!['close','create','save-new','dictionary'].includes(op)){toast('FTP 信源已停用或不存在','error');return;}
   if(op==='close'){closeModal();return;}
   if(op==='select'){selectFtpSource(id);ctx.render?.();return;}
+  if(op==='dictionary'){showModal('企业数据字典 · 13表257字段',dictionaryCatalog(),button('关闭','close'),true);return;}
+  if(op==='mapping-search'){mappingSearch=document.querySelector('[data-ftp-mapping-filter="search"]')?.value||'';ctx.render?.();return;}
+  if(op==='mapping-add'){mappingSearch='';draftFor(state,id).push({enabled:true,sourceField:'',targetTable:mappingModule,targetField:'',scriptId:''});ctx.render?.();return;}
+  if(op==='mapping-remove'){draftFor(state,id).splice(Number(element.dataset.index),1);ctx.render?.();return;}
   if(op==='tab'){selectedId=id;selectedTab=['connection','mappings','files','history'].includes(element.dataset.tab)?element.dataset.tab:'connection';ctx.render?.();return;}
   if(op==='create'){showModal('新增 FTP 对接',connectionForm({name:'新 FTP 信源',ftpConfig:{protocol:'ftps',host:'ftp.example.invalid',port:21,directory:'/enterprise',username:'demo_reader',format:'json',filePattern:'enterprise_*.json'}},true),button('创建信源','save-new','','primary'),true);return;}
   if(op==='save-new'){
@@ -139,9 +173,9 @@ export async function handleFtpAction(action,element,ctx){
     await mutate(()=>{const p=getState().providers.find(p=>p.id===id);p.name=name;p.ftpConfig=config;},'FTP 配置已保存；定时传输由服务端执行');return;
   }
   if(op==='save-mappings'){
-    const form=new FormData(document.querySelector('#ftp-mapping-form')),mappings=FIELD_DEFS.map(f=>({targetField:f.key,sourceField:String(form.get(`${f.key}_source`)??'').trim(),scriptId:String(form.get(`${f.key}_script`)??''),enabled:form.has(`${f.key}_enabled`)}));
+    const mappings=draftFor(state,id).map(({targetTable,legacyTarget,...m})=>({...m,targetField:legacyTarget||m.targetField,sourceField:String(m.sourceField||'').trim()}));
     const validation=validateFtpMappings({...state,mappings:{...state.mappings,[id]:mappings}},id);if(!validation.valid){toast(validation.errors.join('；'),'error');return;}
-    await mutate(()=>{getState().mappings[id]=mappings;},'FTP 字段映射已保存');return;
+    const ok=await mutate(()=>{getState().mappings[id]=mappings;},'FTP 字段映射已保存');if(ok)mappingDrafts.delete(id);return;
   }
   if(op==='preview'){
     const file=getFtpFiles(state,id).find(f=>f.id===element.dataset.file);if(!file){toast('文件不存在','error');return;}

@@ -1,7 +1,11 @@
+import {DICTIONARY_FIELDS,getDictionaryField} from './enterprise-dictionary.mjs';
+import {LEGACY_ALIAS_MAP,canonicalField,mapDomainRows,mergeTableRows,materializeTables,getTableRows,getTableRecords} from './enterprise-domain.mjs';
+export {LEGACY_ALIAS_MAP,getTableRows,getTableRecords};
+export const FIELD_DEFS=DICTIONARY_FIELDS;
 import { DEMO_METADATA, DEMO_SNAPSHOTS, DEMO_COMPANIES, DEFAULT_FILTERS } from './demo-data.mjs';
 export { DEFAULT_FILTERS } from './demo-data.mjs';
 
-export const FIELD_DEFS = [
+export const LEGACY_FIELD_DEFS = [
   ['enterpriseName','企业全称','string','工商信息',true], ['creditCode','统一社会信用代码','string','工商信息',true],
   ['legalPerson','法定代表人','string','工商信息'], ['registrationStatus','经营状态','string','工商信息'],
   ['establishedAt','成立日期','date','工商信息'], ['registeredCapitalWan','注册资本（万元）','number','工商信息'],
@@ -9,8 +13,8 @@ export const FIELD_DEFS = [
   ['industry','行业','string','工商信息'], ['businessScope','经营范围','string','工商信息'], ['registeredAddress','注册地址','string','工商信息'],
   ['qualifications','企业资质','array','专题补充'], ['scale','企业规模','string','专题补充'], ['chainNodes','产业链节点','array','专题补充'],
 ].map(([key,label,type,group,required=false]) => ({key,label,type,group,required}));
-const FIELD_KEYS = new Set(FIELD_DEFS.map(f => f.key));
-const CORE_KEYS = FIELD_DEFS.map(f => f.key);
+const FIELD_KEYS = new Set([...LEGACY_FIELD_DEFS,...DICTIONARY_FIELDS].map(f => f.key));
+const CORE_KEYS = LEGACY_FIELD_DEFS.map(f => f.key);
 const clone = value => JSON.parse(JSON.stringify(value));
 const equal = (a,b) => JSON.stringify(a) === JSON.stringify(b);
 const empty = v => v == null || v === '' || (typeof v === 'string' && !v.trim()) || (Array.isArray(v) && !v.length);
@@ -18,7 +22,7 @@ const validDateMs = v => { const n = typeof v === 'number' ? v : Date.parse(v); 
 const isoTime = v => { const n = validDateMs(v); return n === null ? null : new Date(n).toISOString(); };
 const nowIso = v => isoTime(v ?? new Date().toISOString()) ?? new Date().toISOString();
 const normalizeCode = v => String(v ?? '').trim().toUpperCase();
-const valuesOnly = record => Object.fromEntries(CORE_KEYS.map(k => [k,record?.[k] ?? null]));
+const valuesOnly = record => ({...Object.fromEntries(CORE_KEYS.map(k => [k,record?.[k] ?? null])),tables:record?.tables?Object.fromEntries(Object.entries(record.tables).map(([key,rows])=>[key,rows.map(row=>({rowKey:row.rowKey,values:Object.fromEntries(Object.entries(row.values).filter(([field])=>!getDictionaryField(field)?.technical))}))])):null});
 const getByPath = (obj,path) => String(path).split('.').reduce((v,k) => v?.[k],obj);
 
 export function getRecordId(codeOrRecord) {
@@ -57,30 +61,43 @@ function defaultMappings() {
   };
 }
 
+export function createDefaultFtpMappings(){
+  const base=['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'];
+  const mappings=LEGACY_FIELD_DEFS.filter(field=>!['qualifications','chainNodes'].includes(field.key)).map(field=>map(base[LEGACY_FIELD_DEFS.indexOf(field)],LEGACY_ALIAS_MAP[field.key],field.key==='registeredCapitalWan'?'wan_to_yuan':''));
+  const modules={contacts:['enterprise_contact','contact_phone','contact_email'],annual_operations:['enterprise_annual_operation','fiscal_year','annual_revenue','employee_count'],listings:['enterprise_listing','exchange_code','stock_code','stock_name'],shareholders:['enterprise_shareholder','subject_type','subject_name','direct_ownership_percent'],qualification_records:['enterprise_qualification','qualification_type','qualification_name','certificate_no'],patents:['enterprise_patent','patent_type','patent_name','application_no'],ip_summaries:['enterprise_intellectual_property_summary','statistics_date','patent_count'],risk_events:['enterprise_risk_event','risk_type','event_title'],risk_summaries:['enterprise_risk_summary','statistics_date','tax_credit_rating','litigation_count'],tags:['enterprise_tag','tag_type','tag_name','tag_code','tag_version']};
+  for(const [path,[table,...fields]]of Object.entries(modules))for(const field of fields)mappings.push(map(`${path}[].${field}`,`${table}.${field}`));
+  return mappings;
+}
+export function createDefaultFtpProvider(id,name){return {id,name,type:'ftp',enabled:true,connectionMode:'demo',status:'demo_ready',description:'FTP / FTPS 文件接入演示；文件与企业均为虚构样例，未建立真实网络连接。',ftpConfig:{protocol:'ftps',host:'ftp.example.invalid',port:21,directory:'/enterprise',filePattern:'enterprise_*.json',username:'demo_reader',format:'json'}};}
+
 export function createInitialState({seed=true}={}) {
   const state = {
-    schemaVersion: 1, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
+    schemaVersion: 2.5, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
     providers: [
-      {id:'ftp_demo',name:'企业数据 FTP 信源',type:'ftp',enabled:true,connectionMode:'demo',status:'demo_ready',description:'FTP / FTPS 文件接入演示；目录和文件为虚构样例，未建立真实网络连接。',ftpConfig:{protocol:'ftps',host:'ftp.example.invalid',port:21,directory:'/enterprise',filePattern:'enterprise_*.json',username:'demo_reader',format:'json'}},
+      ...[['ftp_qcc','企查查 FTP'],['ftp_qxb','启信宝 FTP'],['ftp_tyc','天眼查 FTP']].map(([id,name])=>createDefaultFtpProvider(id,name)),
       {id:'file',name:'离线文件本地上传',type:'file',enabled:true,baseUrl:'',authType:'无需鉴权',connectionMode:'file',status:'ready',description:'补充资质、规模、产业链节点；用户自行提供授权数据。'},
     ],
-    mappings: {...defaultMappings(),ftp_demo: FIELD_DEFS.map((field,index)=>map(['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'][index],field.key,field.type==='array'?'split_values':''))},
+    mappings: {...defaultMappings(),...Object.fromEntries(['ftp_qcc','ftp_qxb','ftp_tyc'].map(id=>[id,createDefaultFtpMappings()]))},
     scripts: [
       {id:'yuan_to_wan',name:'金额转换：元 → 万元',version:2,status:'published',description:'无单位数值按元；带元、万、亿单位的人民币字符串按显式单位解析。拒绝未知币种，不自动换汇。',code:capitalScriptCode(0.0001)},
       {id:'capital_to_wan',name:'注册资本标准化：万元',version:1,status:'published',description:'无单位数值按万元；带元、万、亿单位的人民币字符串按显式单位解析。拒绝未知币种，不自动换汇。',code:capitalScriptCode(1)},
       {id:'date_iso',name:'日期标准化',version:1,status:'published',description:'接受 YYYY/MM/DD、YYYY-MM-DD 或毫秒时间戳；时间戳按北京时间输出 YYYY-MM-DD。',code:'if (value == null || value === "") return null; if (typeof value === "string" && /^\\d{4}[-/]\\d{2}[-/]\\d{2}/.test(value)) { const s = value.slice(0, 10).replaceAll("/", "-"); const d = new Date(s + "T00:00:00Z"); if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) throw new Error("日期格式不正确"); return s; } const d = new Date(Number(value) + 8 * 3600000); if (Number.isNaN(d.getTime())) throw new Error("日期格式不正确"); return d.toISOString().slice(0, 10);'},
       {id:'split_values',name:'多值拆分与去重',version:1,status:'published',description:'按中文分号、分号、中文逗号或英文逗号拆分，清除空项。',code:'return [...new Set((Array.isArray(value) ? value : String(value ?? "").split(/[；;，,]/)).map(x => String(x).trim()).filter(Boolean))];'},
+      {id:'wan_to_yuan',name:'金额转换：万元 → 元',version:1,status:'published',description:'旧万元输入转换成字典中的元；不自动换汇。',code:'if(value == null || value === \"\") return null; const n=Number(value); if(!Number.isFinite(n)||n<0) throw new Error(\"金额须为非负有限数值\"); return n*10000;'},
     ],
-    priorities: Object.fromEntries(FIELD_DEFS.map(f => [f.key,f.group === '专题补充' ? ['file','ftp_demo'] : ['ftp_demo','file']])),
+    priorities: Object.fromEntries(DICTIONARY_FIELDS.map(f=>[f.key,['ftp_qcc','ftp_qxb','ftp_tyc','file']])),
     schedules: {
-      ftp_demo:{enabled:false,mode:'incremental',frequency:'manual',intervalHours:1,time:'02:00',lastCursor:null,nextRunAt:null},
+      ...Object.fromEntries(['ftp_qcc','ftp_qxb','ftp_tyc'].map(id=>[id,{enabled:false,mode:'incremental',frequency:'manual',intervalHours:1,time:'02:00',lastCursor:null,nextRunAt:null}])),
       file:{enabled:false,mode:'full',frequency:'manual',intervalHours:0,time:'',lastCursor:null,nextRunAt:null},
     },
     rawRecords:[],records:[],tasks:[],serviceLogs:[],fieldSourceOverrides:{},
   };
   if(seed) {
-    const rows=DEMO_COMPANIES.slice(0,24).map(company=>({...Object.fromEntries(state.mappings.ftp_demo.map(mapping=>[mapping.sourceField,company[mapping.targetField]])),sourceUpdatedAt:DEMO_METADATA.baselineAt,_synthetic:true}));
-    applyBatch(state,{sourceId:'ftp_demo',rows,mode:'full',now:'2026-10-27T09:00:00+08:00'});
+    const canonicalMappings=state.mappings.ftp_qcc;
+    state.mappings.ftp_qcc=LEGACY_FIELD_DEFS.map((field,index)=>map(['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'][index],field.key,field.type==='array'?'split_values':''));
+    const rows=DEMO_COMPANIES.slice(0,24).map(company=>({...Object.fromEntries(state.mappings.ftp_qcc.map(mapping=>[mapping.sourceField,company[mapping.targetField]])),sourceUpdatedAt:DEMO_METADATA.baselineAt,_synthetic:true}));
+    applyBatch(state,{sourceId:'ftp_qcc',rows,mode:'full',now:'2026-10-27T09:00:00+08:00'});
+    state.mappings.ftp_qcc=canonicalMappings;
     applyBatch(state,{sourceId:'file',rows:clone(DEMO_SNAPSHOTS.file.v1),mode:'full',now:'2026-10-27T09:00:00+08:00'});
   }
   return state;
@@ -91,20 +108,23 @@ export function validateMappings(state,sourceId) {
   for(const m of mappings.filter(m => m.enabled !== false)) {
     if(!m.sourceField?.trim()) errors.push('来源字段不能为空');
     if(!FIELD_KEYS.has(m.targetField)) errors.push(`未知标准字段：${m.targetField}`);
-    if(targets.has(m.targetField)) errors.push(`标准字段重复映射：${m.targetField}`);
-    targets.add(m.targetField);
+    if(getDictionaryField(m.targetField)?.technical) errors.push(`中心生成/关联字段不可映射：${m.targetField}`);
+    if(targets.has(canonicalField(m.targetField))) errors.push(`标准字段重复映射：${m.targetField}`);
+    targets.add(canonicalField(m.targetField));
     if(m.scriptId) {
       const script = state.scripts.find(s => s.id === m.scriptId);
       if(!script) errors.push(`转换脚本不存在：${m.scriptId}`);
       else if(script.status !== 'published') errors.push(`转换脚本未发布：${script.name}`);
     }
   }
-  for(const key of ['enterpriseName','creditCode']) if(!targets.has(key)) errors.push(`缺少必填字段映射：${key}`);
+  for(const key of ['enterprise.enterprise_name','enterprise.unified_social_credit_code']) if(!targets.has(key)) errors.push(`缺少必填字段映射：${key}`);
+  for(const table of new Set(mappings.filter(m=>m.enabled!==false).map(m=>canonicalField(m.targetField).split('.')[0]))){const roots=new Set(mappings.filter(m=>m.enabled!==false&&canonicalField(m.targetField).startsWith(`${table}.`)).map(m=>m.sourceField?.match(/^(.*?)\[\]\./)?.[1]??''));if(roots.size>1)errors.push(`${table}字段须来自同一明细数组；不能拼接不同记录`);}
   return {valid:errors.length===0,errors:[...new Set(errors)]};
 }
 
 export function runBuiltinScript(script,value) {
   if(empty(value)) return script.id === 'split_values' ? [] : null;
+  if(script.id === 'wan_to_yuan') {const n=Number(value);if(!Number.isFinite(n)||n<0)throw new Error('金额须为非负有限数值');return n*10000;}
   if(script.id === 'yuan_to_wan') return capitalToWan(value,0.0001);
   if(script.id === 'capital_to_wan') return capitalToWan(value,1);
   if(script.id === 'date_iso') {
@@ -125,7 +145,7 @@ export function runBuiltinScript(script,value) {
 function mapRow(state,sourceId,row,runner) {
   if(!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('记录必须为对象');
   const values = {}, scriptVersions = {}, fieldMappings = {};
-  for(const m of (state.mappings[sourceId] ?? []).filter(m => m.enabled !== false)) {
+  for(const m of (state.mappings[sourceId] ?? []).filter(m => m.enabled !== false && !m.targetField.includes('.'))) {
     let value = getByPath(row,m.sourceField);
     if(m.scriptId) {
       const script = state.scripts.find(s => s.id === m.scriptId && s.status === 'published');
@@ -134,7 +154,7 @@ function mapRow(state,sourceId,row,runner) {
       if(value && typeof value.then === 'function') throw new Error('批处理脚本须同步返回转换结果');
       scriptVersions[m.targetField] = {id:script.id,version:script.version};
     }
-    const def = FIELD_DEFS.find(f => f.key === m.targetField);
+    const def = LEGACY_FIELD_DEFS.find(f => f.key === m.targetField);
     if(!def) continue;
     fieldMappings[m.targetField]=m.sourceField;
     if(empty(value)) value = def.type === 'array' ? [] : null;
@@ -143,10 +163,14 @@ function mapRow(state,sourceId,row,runner) {
     else value=String(value).trim();
     values[m.targetField]=value;
   }
+  const domain=mapDomainRows(state,sourceId,row,runner??runBuiltinScript);
+  Object.assign(values,domain.values);Object.assign(scriptVersions,domain.scriptVersions);Object.assign(fieldMappings,domain.fieldMappings);
+  values.enterpriseName??=domain.values['enterprise.enterprise_name'];values.creditCode??=domain.values['enterprise.unified_social_credit_code'];
   values.creditCode=normalizeCode(values.creditCode);
+  if(values['enterprise.unified_social_credit_code']!=null)values['enterprise.unified_social_credit_code']=values.creditCode;
   if(!values.enterpriseName || !values.creditCode) throw new Error('缺少企业全称或统一社会信用代码');
   if(!values.creditCode.startsWith('DEMO-') && !/^[0-9A-Z]{18}$/.test(values.creditCode)) throw new Error('信用代码需为18位字母数字，演示标识须以 DEMO- 开头');
-  return {values,scriptVersions,fieldMappings};
+  return {values,scriptVersions,fieldMappings,tableRows:domain.tableRows,mappingErrors:domain.errors,dictionaryMapped:(state.mappings[sourceId]??[]).some(m=>m.enabled!==false&&m.targetField.includes('.'))};
 }
 
 function parseSourceTime(value) {
@@ -198,12 +222,14 @@ export function applyBatch(state,{sourceId,rows,mode='incremental',runScript,now
       const ms=Date.parse(stamp.time);
       if(mode==='incremental' && (startMs!==null && ms<=startMs || endMs!==null && ms>endMs)) {task.skipped++;return;}
       const mapped=mapRow(state,sourceId,row,runScript), key=mapped.values.creditCode;
-      const item={sourceId,entityKey:key,recordId:getRecordId(key),sourceUpdatedAt:stamp.time,sourceTimeAssumed:stamp.assumed,sourceTimeField:stamp.field,ingestedAt:startedAt,values:mapped.values,scriptVersions:mapped.scriptVersions,fieldMappings:mapped.fieldMappings,raw:clone(row),batchId:task.id};
+      for(const error of mapped.mappingErrors??[]){task.failed++;task.errors.push({row:index+1,...error,creditCode:key});}
+      const item={sourceId,entityKey:key,recordId:getRecordId(key),sourceUpdatedAt:stamp.time,sourceTimeAssumed:stamp.assumed,sourceTimeField:stamp.field,ingestedAt:startedAt,values:mapped.values,scriptVersions:mapped.scriptVersions,fieldMappings:mapped.fieldMappings,raw:clone(row),batchId:task.id,dictionaryMapped:mapped.dictionaryMapped,tableRows:mapped.tableRows.map(tableRow=>({...tableRow,sourceUpdatedAt:stamp.time,sourceTimeAssumed:stamp.assumed,sourceTimeField:stamp.field,ingestedAt:startedAt,batchId:task.id}))};
       if(candidates.has(key)) {
         task.duplicates++;
         const previous=candidates.get(key);
-        if(item.sourceTimeAssumed && !previous.sourceTimeAssumed) return;
-        if(item.sourceTimeAssumed===previous.sourceTimeAssumed && Date.parse(item.sourceUpdatedAt)<Date.parse(previous.sourceUpdatedAt)) return;
+        item.tableRows=mergeTableRows(previous.tableRows,item.tableRows);
+        if(item.sourceTimeAssumed && !previous.sourceTimeAssumed) {previous.tableRows=item.tableRows;return;}
+        if(item.sourceTimeAssumed===previous.sourceTimeAssumed && Date.parse(item.sourceUpdatedAt)<Date.parse(previous.sourceUpdatedAt)) {previous.tableRows=item.tableRows;return;}
       }
       candidates.set(key,item);
     } catch(error) {task.failed++;task.errors.push({row:index+1,message:error.message,creditCode:String(row?.CreditCode??row?.creditCode??row?.['统一社会信用代码']??'')});}
@@ -213,9 +239,13 @@ export function applyBatch(state,{sourceId,rows,mode='incremental',runScript,now
     const index=state.rawRecords.findIndex(r => r.sourceId===sourceId && r.entityKey===key);
     if(index<0) {state.rawRecords.push(item);task.added++;continue;}
     const old=state.rawRecords[index];
+    const mergedRows=mergeTableRows(old.tableRows,item.tableRows);
+    if(item.sourceTimeAssumed && !old.sourceTimeAssumed || Boolean(item.sourceTimeAssumed)===Boolean(old.sourceTimeAssumed) && Date.parse(item.sourceUpdatedAt)<Date.parse(old.sourceUpdatedAt))old.tableRows=mergedRows;
     if(item.sourceTimeAssumed && !old.sourceTimeAssumed) {task.unchanged++;task.ignoredUnknownTime++;continue;}
     if(Boolean(item.sourceTimeAssumed)===Boolean(old.sourceTimeAssumed) && Date.parse(item.sourceUpdatedAt)<Date.parse(old.sourceUpdatedAt)) {task.unchanged++;task.ignoredStale++;continue;}
-    if(equal(old.values,item.values)) task.unchanged++; else task.updated++;
+    item.tableRows=mergedRows;
+    item.values={...old.values,...item.values};
+    if(equal(old.values,item.values) && equal((old.tableRows??[]).map(r=>[r.rowKey,r.values]),item.tableRows.map(r=>[r.rowKey,r.values]))) task.unchanged++; else task.updated++;
     state.rawRecords[index]=item;
   }
   recomputeRecords(state,{now:startedAt});
@@ -245,13 +275,13 @@ export function recomputeRecords(state,{now}={}) {
   state.records=[...groups].map(([id,raws]) => {
     const record={id,enterpriseId:id,lineage:{},sources:[...new Set(raws.map(r=>r.sourceId))],synthetic:raws.some(r=>r.raw?._synthetic===true)};
     const identityKey=normalizeCode(oldRecords.get(id)?.creditCode)||normalizeCode(raws[0]?.entityKey);
-    for(const def of FIELD_DEFS) {
-      const priorities=state.priorities[def.key]??state.providers.map(p=>p.id);
+    for(const def of LEGACY_FIELD_DEFS) {
+      const priorities=state.priorities[def.key]??state.priorities[canonicalField(def.key)]??state.providers.map(p=>p.id);
       const candidates=raws.filter(r => Object.hasOwn(r.values,def.key)).map(r => {
         const valid=def.key!=='creditCode'||normalizeCode(r.values.creditCode)===identityKey&&normalizeCode(r.entityKey)===identityKey&&getRecordId(r.values.creditCode)===id;
         return {sourceId:r.sourceId,sourceName:state.providers.find(p=>p.id===r.sourceId)?.name??r.sourceId,value:clone(r.values[def.key]),sourceUpdatedAt:r.sourceUpdatedAt,sourceTimeAssumed:Boolean(r.sourceTimeAssumed),sourceTimeField:r.sourceTimeField??null,ingestedAt:r.ingestedAt,script:r.scriptVersions?.[def.key]??null,empty:empty(r.values[def.key]),valid,invalidReason:valid?null:'信用代码与当前企业身份不一致',priority:priorities.indexOf(r.sourceId)>=0?priorities.indexOf(r.sourceId)+1:999,rawField:r.fieldMappings?.[def.key]??(state.mappings[r.sourceId]??[]).find(m=>m.targetField===def.key)?.sourceField??null};
       }).sort((a,b)=>a.priority-b.priority || Date.parse(b.sourceUpdatedAt)-Date.parse(a.sourceUpdatedAt));
-      const override=state.fieldSourceOverrides?.[id]?.[def.key],manualRequested=Boolean(override&&typeof override.sourceId==='string'&&override.sourceId),requestedSourceId=manualRequested?override.sourceId:null;
+      const override=state.fieldSourceOverrides?.[id]?.[def.key]??state.fieldSourceOverrides?.[id]?.[canonicalField(def.key)],manualRequested=Boolean(override&&typeof override.sourceId==='string'&&override.sourceId),requestedSourceId=manualRequested?override.sourceId:null;
       const requested=candidates.find(c=>c.sourceId===requestedSourceId),sourceExists=manualRequested&&state.providers.some(p=>p.id===requestedSourceId);
       const pinned=sourceExists&&requested&&!requested.empty&&requested.valid?requested:null;
       const selected=pinned||candidates.find(c=>!c.empty&&c.valid)||null,manualApplied=Boolean(pinned),fallback=manualRequested&&!manualApplied;
@@ -265,6 +295,8 @@ export function recomputeRecords(state,{now}={}) {
     record.createdAt=old?.createdAt??at;
     record.updatedAt=old && equal(valuesOnly(old),valuesOnly(record)) ? old.updatedAt : at;
     record.sourceUpdatedAt=raws.map(r=>r.sourceUpdatedAt).sort().at(-1);
+    materializeTables(state,record,raws,at);
+    record.updatedAt=old && equal(valuesOnly(old),valuesOnly(record)) ? old.updatedAt : at;
     return record;
   }).sort((a,b)=>String(a.creditCode).localeCompare(String(b.creditCode)));
   return state.records;
@@ -298,9 +330,10 @@ export function exactQuery(state,query) {
   return record ? {status:'found',record,message:'已精确匹配到企业'} : {status:'not_found',message:'中心未找到完全匹配的企业，请核对企业全称或信用代码；可在接入任务中刷新已授权的数据。'};
 }
 
-export function getLineage(state,id,field) {
+export function getLineage(state,id,field,{rowId}={}) {
   const record=state.records.find(r=>r.id===id || r.creditCode===id);
-  return {selected:null,candidates:[],rule:'暂无来源数据',override:null,requestedSourceId:null,manualRequested:false,manualApplied:false,fallback:false,fallbackReason:null,selectionMode:'auto',...(record?.lineage?.[field]??{})};
+  const row=rowId?Object.values(record?.tables??{}).flat().find(row=>row.id===rowId):null;
+  return {selected:null,candidates:[],rule:'暂无来源数据',override:null,requestedSourceId:null,manualRequested:false,manualApplied:false,fallback:false,fallbackReason:null,selectionMode:'auto',...(row?.lineage?.[field]??record?.lineage?.[field]??{})};
 }
 
 function validateFieldOverrideTarget(state,recordId,field,now){
@@ -312,7 +345,8 @@ function validateFieldOverrideTarget(state,recordId,field,now){
 }
 
 /** Persist one enterprise/field source preference, never a copied value or a raw-record rewrite. */
-export function setFieldSourceOverride(state,recordId,field,sourceId,{now}={}){
+export function setFieldSourceOverride(state,recordId,field,sourceId,{now,rowId}={}){
+  if(field.includes('.'))return setDomainOverride(state,recordId,field,sourceId,{now,rowId});
   const record=validateFieldOverrideTarget(state,recordId,field,now);
   if(typeof sourceId!=='string'||!state.providers.some(provider=>provider.id===sourceId))throw new Error('指定信源不存在');
   if(state.providers.some(provider=>provider.id===sourceId&&(provider.type==='api'||provider.retired)))throw new Error('历史 API 信源已停用，不可新增手动选源配置');
@@ -329,7 +363,8 @@ export function setFieldSourceOverride(state,recordId,field,sourceId,{now}={}){
 }
 
 /** Restore automatic source ranking for only this enterprise/field. No-op when no pin exists. */
-export function clearFieldSourceOverride(state,recordId,field,{now}={}){
+export function clearFieldSourceOverride(state,recordId,field,{now,rowId}={}){
+  if(field.includes('.'))return clearDomainOverride(state,recordId,field,{now,rowId});
   validateFieldOverrideTarget(state,recordId,field,now);
   if(!Object.hasOwn(state.fieldSourceOverrides?.[recordId]??{},field))return getLineage(state,recordId,field);
   delete state.fieldSourceOverrides[recordId][field];
@@ -343,4 +378,28 @@ export function recordServiceCall(state,{type,query='',filters={},resultCount=0,
   const log={id:`service_${state.sequence++}`,type,query,filters:clone(filters),resultCount,createdAt:nowIso(now),status:'success'};
   state.serviceLogs.unshift(log);
   return log;
+}
+
+function domainOverrideKey(state,recordId,field,rowId){
+  validateFieldOverrideTarget(state,recordId,field);
+  const def=getDictionaryField(field);if(!def||def.technical)throw new Error('中心生成/关联字段不可手动选源');
+  if(def.table==='enterprise')return field;
+  if(!rowId||!getTableRecords(state,recordId,def.table).some(row=>row.id===rowId))throw new Error('请指定有效的明细行');
+  return `${rowId}|${field}`;
+}
+function setDomainOverride(state,recordId,field,sourceId,{now,rowId}){
+  const key=domainOverrideKey(state,recordId,field,rowId);
+  const source=state.providers.find(p=>p.id===sourceId);if(!source||source.retired||source.type==='api')throw new Error('指定信源不存在或已停用');
+  const candidate=getLineage(state,recordId,field,{rowId}).candidates.find(c=>c.sourceId===sourceId);
+  if(!candidate||candidate.empty||candidate.valid===false)throw new Error('该信源没有此行此字段的有效非空候选值');
+  if(now!=null&&validDateMs(now)===null)throw new Error('手动选择时间无效');
+  if(state.fieldSourceOverrides?.[recordId]?.[key]?.sourceId===sourceId)return getLineage(state,recordId,field,{rowId});
+  state.fieldSourceOverrides??={};state.fieldSourceOverrides[recordId]??={};state.fieldSourceOverrides[recordId][key]={sourceId,updatedAt:nowIso(now)};
+  recomputeRecords(state,{now});state.dataVersion=(state.dataVersion??0)+1;return getLineage(state,recordId,field,{rowId});
+}
+function clearDomainOverride(state,recordId,field,{now,rowId}){
+  const key=domainOverrideKey(state,recordId,field,rowId);if(now!=null&&validDateMs(now)===null)throw new Error('手动选择时间无效');
+  if(!Object.hasOwn(state.fieldSourceOverrides?.[recordId]??{},key))return getLineage(state,recordId,field,{rowId});
+  delete state.fieldSourceOverrides[recordId][key];if(!Object.keys(state.fieldSourceOverrides[recordId]).length)delete state.fieldSourceOverrides[recordId];
+  recomputeRecords(state,{now});state.dataVersion=(state.dataVersion??0)+1;return getLineage(state,recordId,field,{rowId});
 }

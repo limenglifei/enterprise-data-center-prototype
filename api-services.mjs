@@ -1,4 +1,4 @@
-import {FIELD_DEFS,filterEnterprises,exactQuery} from './core.mjs';
+import {LEGACY_FIELD_DEFS as FIELD_DEFS,filterEnterprises,exactQuery} from './core.mjs';
 
 const DEFINITIONS=[
   {id:'search',kind:'search',name:'企业批量筛选',method:'POST',path:'/api/v1/enterprises/search',version:'1.0.0',description:'按地区、行业、资质、规模、产业链节点组合条件，分页返回统一企业库数据。'},
