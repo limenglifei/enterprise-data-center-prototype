@@ -6,12 +6,12 @@ import {upgradeUpdateJobs,createUpdateJob,validateUpdateJob,nextJobRun,dueUpdate
 
 const NOW='2026-10-29T01:00:00Z'; // Thursday, Beijing 09:00.
 const workspace=()=>{const state=upgradeFtpSources(createInitialState({seed:false}));createFtpSource(state,{id:'ftp_second',name:'第二文件来源'});return upgradeUpdateJobs(state,NOW);};
-const input={name:'每日企业同步',sourceId:'ftp_demo',mode:'incremental',frequency:'daily',time:'02:00',weekday:1,intervalHours:1,enabled:true};
+const input={name:'每日企业同步',sourceId:'ftp_qcc',mode:'incremental',frequency:'daily',time:'02:00',weekday:1,intervalHours:1,enabled:true};
 
 test('initial migration creates FTP tasks and retires API jobs without overwriting their checkpoints',()=>{
  const state=createInitialState({seed:false});state.providers.push({id:'old_api',type:'api',enabled:true});state.updateJobs=[{id:'old',sourceId:'old_api',enabled:true,nextRunAt:NOW,lastCursor:'2026-10-25T00:00:00Z'}];
- state.schedules.ftp_demo={enabled:true,mode:'full',frequency:'weekly',time:'03:30',weekday:5,intervalHours:168,lastCursor:null,nextRunAt:null};
- upgradeUpdateJobs(state,NOW);assert.equal(state.updateJobs.length,2);const old=state.updateJobs[0],ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(old.enabled,false);assert.equal(old.retired,true);assert.equal(old.nextRunAt,null);assert.equal(old.lastCursor,'2026-10-25T00:00:00Z');assert.equal(ftp.frequency,'weekly');assert.equal(ftp.time,'03:30');assert.equal(ftp.weekday,5);
+ state.schedules.ftp_qcc={enabled:true,mode:'full',frequency:'weekly',time:'03:30',weekday:5,intervalHours:168,lastCursor:null,nextRunAt:null};
+ upgradeUpdateJobs(state,NOW);assert.equal(state.updateJobs.length,4);const old=state.updateJobs[0],ftp=state.updateJobs.find(j=>j.sourceId==='ftp_qcc');assert.equal(old.enabled,false);assert.equal(old.retired,true);assert.equal(old.nextRunAt,null);assert.equal(old.lastCursor,'2026-10-25T00:00:00Z');assert.equal(ftp.frequency,'weekly');assert.equal(ftp.time,'03:30');assert.equal(ftp.weekday,5);
  const once=JSON.stringify(state);upgradeUpdateJobs(state,NOW);assert.equal(JSON.stringify(state),once);
 });
 
@@ -20,7 +20,7 @@ test('multiple tasks may share a source and name but retain independent IDs and 
 });
 
 test('manual migration creates a task with no due time',()=>{
-  const state=upgradeFtpSources(createInitialState({seed:false}));state.schedules.ftp_demo.time='';upgradeUpdateJobs(state,NOW);const ftp=state.updateJobs.find(j=>j.sourceId==='ftp_demo');assert.equal(ftp.frequency,'manual');assert.equal(ftp.nextRunAt,null);
+  const state=upgradeFtpSources(createInitialState({seed:false}));state.schedules.ftp_qcc.time='';upgradeUpdateJobs(state,NOW);const ftp=state.updateJobs.find(j=>j.sourceId==='ftp_qcc');assert.equal(ftp.frequency,'manual');assert.equal(ftp.nextRunAt,null);
 });
 
 test('task creation rejects invalid name, source, execution clock, frequency and interval without mutation',()=>{
@@ -55,7 +55,7 @@ test('successful completion advances only the selected job cursor and never roll
 });
 
 test('explicit null cursor does not fall back to a different source job checkpoint',()=>{
-  const state=workspace(),job=createUpdateJob(state,input,{now:NOW});state.schedules.ftp_demo.lastCursor='2026-10-28T00:00:00Z';
+  const state=workspace(),job=createUpdateJob(state,input,{now:NOW});state.schedules.ftp_qcc.lastCursor='2026-10-28T00:00:00Z';
   finishUpdateJob(state,job.id,{task:{id:'t1',status:'success'},now:NOW,cursor:null});assert.equal(job.lastCursor,null);
   finishUpdateJob(state,job.id,{task:{id:'t2',status:'success'},now:NOW});assert.equal(job.lastCursor,'2026-10-28T00:00:00Z','legacy callers without cursor can use compatibility schedule');
 });
@@ -77,6 +77,6 @@ test('job catalog escapes user content, disables paused execution and makes loca
 });
 
 test('FTP connection screen no longer contains update mechanism or frequency controls',()=>{
-  const state=workspace();selectFtpSource('ftp_demo');const html=renderFtpSources(state);
+  const state=workspace();selectFtpSource('ftp_qcc');const html=renderFtpSources(state);
   assert.ok(!html.includes('name="mode"'));assert.ok(!html.includes('name="frequency"'));assert.match(html,/连接配置/);assert.match(html,/更新机制、频率、执行时间统一在更新任务配置/);
 });

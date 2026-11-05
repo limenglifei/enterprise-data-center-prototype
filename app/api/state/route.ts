@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-const MAX_STATE_BYTES = 5 * 1024 * 1024;
+const MAX_STATE_BYTES = 50 * 1024 * 1024;
 const MAX_BODY_BYTES = MAX_STATE_BYTES + 64 * 1024;
 const responseHeaders = { "Cache-Control": "no-store" };
 
@@ -31,7 +31,7 @@ function dbFailure(error?: unknown) {
 async function readBody(request: Request): Promise<string | Response> {
   const contentLength = Number(request.headers.get("content-length"));
   if (contentLength > MAX_BODY_BYTES) {
-    return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 5 MB。" }, 413);
+    return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 50 MB。" }, 413);
   }
   if (!request.body) return "";
   const reader = request.body.getReader();
@@ -44,7 +44,7 @@ async function readBody(request: Request): Promise<string | Response> {
       bytes += item.value.byteLength;
       if (bytes > MAX_BODY_BYTES) {
         await reader.cancel();
-        return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 5 MB。" }, 413);
+        return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 50 MB。" }, 413);
       }
       chunks.push(item.value);
     }
@@ -90,7 +90,7 @@ export async function PUT(request: Request) {
   }
   const payload = JSON.stringify(body.state);
   if (new TextEncoder().encode(payload).byteLength > MAX_STATE_BYTES) {
-    return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 5 MB。" }, 413);
+    return json({ error: "STATE_TOO_LARGE", message: "单份原型状态不能超过 50 MB。" }, 413);
   }
   if (!env.DB) return dbFailure();
   try {

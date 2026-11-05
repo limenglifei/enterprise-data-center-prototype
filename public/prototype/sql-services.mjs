@@ -1,4 +1,4 @@
-import {FIELD_DEFS} from './core.mjs';
+import {LEGACY_FIELD_DEFS as FIELD_DEFS} from './core.mjs';
 
 const COLUMNS=[{key:'enterpriseId',label:'中心企业 ID',type:'string'},...FIELD_DEFS,{key:'dataUpdatedAt',label:'中心更新时间',type:'date'}];
 const FIELD_MAP=new Map(COLUMNS.map(field=>[field.key.toLowerCase(),field.key]));

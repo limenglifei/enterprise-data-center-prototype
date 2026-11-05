@@ -17,7 +17,7 @@ function historical(){
 
 test('fresh workspace seeds usable file sources, enterprise data and provenance',()=>{
  const state=upgrade(createInitialState());assert.equal(state.records.length,24);assert.ok(state.providers.every(isConfigurableSource));assert.ok(state.providers.some(p=>p.type==='ftp'));assert.ok(state.providers.some(p=>p.type==='file'));
- assert.ok(state.records.every(r=>r.lineage.enterpriseName.selected.sourceId==='ftp_demo'));assert.ok(state.rawRecords.length>24);
+ assert.ok(state.records.every(r=>r.lineage.enterpriseName.selected.sourceId==='ftp_qcc'));assert.ok(state.rawRecords.length>24);
 });
 
 test('legacy API migration preserves stored values, identities, raw evidence, history, pins and downstream services',()=>{
@@ -39,11 +39,11 @@ test('retired API tasks and sources cannot execute even when enabled is manually
 
 test('activity rankings stay ahead of historical fallback for initial upgrade and later new FTP sources',()=>{
  const state=upgrade(historical());createFtpSource(state,{id:'new_ftp',name:'新文件来源'});
- for(const order of Object.values(state.priorities)){assert.ok(order.indexOf('ftp_demo')<order.indexOf('qcc'));assert.ok(order.indexOf('new_ftp')<order.indexOf('qcc'));}
+ for(const order of Object.values(state.priorities)){assert.ok(order.indexOf('ftp_qcc')<order.indexOf('qcc'));assert.ok(order.indexOf('new_ftp')<order.indexOf('qcc'));}
  const existing=JSON.stringify(state.records);upgrade(state);assert.equal(JSON.stringify(state.records),existing);
  // Existing pins retain the old source. Other automatic fields use current sources
  // once a normal update or explicit recomputation happens.
  recomputeRecords(state,{now:NOW});assert.equal(state.records[0].lineage.registeredCapitalWan.selected.sourceId,'tyc');
  assert.equal(state.records[0].lineage.legalPerson.selected.sourceId,'qcc');
- importFtpFile(state,'ftp_demo','full-v1',{mode:'full',now:NOW});assert.equal(state.records[0].lineage.legalPerson.selected.sourceId,'ftp_demo');assert.equal(state.records[0].lineage.registeredCapitalWan.selected.sourceId,'tyc');
+ importFtpFile(state,'ftp_qcc','full-v1',{mode:'full',now:NOW});assert.equal(state.records[0].lineage.legalPerson.selected.sourceId,'ftp_qcc');assert.equal(state.records[0].lineage.registeredCapitalWan.selected.sourceId,'tyc');
 });

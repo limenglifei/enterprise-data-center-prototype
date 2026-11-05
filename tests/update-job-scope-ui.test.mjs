@@ -6,7 +6,7 @@ import {renderUpdateJobForm,renderUpdateJobs,upgradeUpdateJobs,createUpdateJob,s
 
 test('FTP task configuration removes upstream API enterprise range controls',()=>{
  const state=createInitialState();upgradeUpdateJobs(state);state.providers.push({id:'legacy_api',name:'旧API',type:'api',enabled:false,retired:true});
- const input={name:'FTP每日更新',sourceId:'ftp_demo',mode:'incremental',frequency:'daily',time:'02:00',enabled:true};const job=createUpdateJob(state,{...input,scope:{type:'list',entries:[]}});
+ const input={name:'FTP每日更新',sourceId:'ftp_qcc',mode:'incremental',frequency:'daily',time:'02:00',enabled:true};const job=createUpdateJob(state,{...input,scope:{type:'list',entries:[]}});
  assert.equal(job.scope,undefined);saveUpdateJob(state,job.id,{...input,scope:{type:'filters'}});assert.equal(job.scope,undefined);
  const form=renderUpdateJobForm(state,job),catalog=renderUpdateJobs(state);assert.match(form,/FTP\/FTPS/);assert.match(form,/离线文件本地上传/);assert.doesNotMatch(form+catalog,/scopeType|scopeFile|全部企业|按条件筛选|上传企业名单|legacy_api|API 对接/);
 });

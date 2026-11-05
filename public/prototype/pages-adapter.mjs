@@ -1,5 +1,6 @@
 /** Dedicated GitHub Pages persistence. The full deployment keeps its D1 transport. */
-const MAX_STATE_BYTES = 5 * 1024 * 1024;
+// Canonical module rows and their provenance are larger than the legacy flat view.
+const MAX_STATE_BYTES = 50 * 1024 * 1024;
 const EMPTY = {state:null,revision:0};
 
 function apiError(status, data) {
@@ -65,7 +66,7 @@ export function createPublicDemoTransport({
       try{input=JSON.parse(options.body);}catch{throw apiError(400,{message:'状态内容必须是有效 JSON。'});}
       if(!input || !Number.isSafeInteger(input.baseRevision) || input.baseRevision<0)throw apiError(400,{message:'baseRevision 必须是非负整数。'});
       if(!input.state || typeof input.state!=='object' || Array.isArray(input.state))throw apiError(400,{message:'state 必须是原型状态对象。'});
-      if(new TextEncoder().encode(JSON.stringify(input.state)).byteLength>MAX_STATE_BYTES)throw apiError(413,{message:'单份原型状态不能超过 5 MB。'});
+      if(new TextEncoder().encode(JSON.stringify(input.state)).byteLength>MAX_STATE_BYTES)throw apiError(413,{message:'单份原型状态不能超过 50 MB。'});
       return access(input);
     }
     // Demo snapshots and assets still use real HTTP fetches, never invented responses.

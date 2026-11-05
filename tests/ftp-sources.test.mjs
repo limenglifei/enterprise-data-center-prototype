@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {recomputeRecords} from '../public/prototype/core.mjs';
+import {recomputeRecords,runBuiltinScript} from '../public/prototype/core.mjs';
 import {createInitialState} from './fixtures/file-schema-workspace.mjs';
 import {upgradeFtpSources,createFtpSource,validateFtpConfig,getFtpFiles,importFtpFile,validateFtpMappings,renderFtpSources,selectFtpSource} from '../public/prototype/ftp-sources.mjs';
 
@@ -61,7 +61,7 @@ test('incremental older files are skipped using the successful checkpoint',()=>{
 
 test('script mapping validation rejects unpublished scripts and unsafe field access',()=>{
   const state=workspace(),id=source(state).id;state.mappings[id][0].sourceField='__proto__.constructor';assert.equal(validateFtpMappings(state,id).valid,false);
-  state.mappings[id][0].sourceField='company_name';state.scripts.find(s=>s.id==='split_values').status='draft';assert.equal(validateFtpMappings(state,id).valid,false);
+  state.mappings[id][0].sourceField='company_name';state.scripts.find(s=>s.id==='wan_to_yuan').status='draft';assert.equal(validateFtpMappings(state,id).valid,false);
   assert.throws(()=>run(state,'full-v1'),/脚本未发布/);assert.equal(state.tasks.length,0);
 });
 
@@ -73,7 +73,7 @@ test('failed mapping rows retain cursor and permit retry after script repair',()
 
 test('FTP shares the existing source conflict resolution and takes effect when source order changes',()=>{
   const state=upgradeFtpSources(createInitialState());run(state,'delta-v2');const id=source(state).id,record=state.records.find(r=>r.creditCode==='DEMO-CN-000001');
-  assert.equal(record.lineage.legalPerson.selected.sourceId,'qcc');state.priorities.legalPerson=[id,...state.priorities.legalPerson.filter(s=>s!==id)];recomputeRecords(state);
+  assert.equal(record.lineage.legalPerson.selected.sourceId,'qcc');state.priorities['enterprise.legal_representative']=[id,...state.priorities['enterprise.legal_representative'].filter(s=>s!==id)];recomputeRecords(state);
   assert.equal(state.records.find(r=>r.creditCode==='DEMO-CN-000001').lineage.legalPerson.selected.sourceId,id);
 });
 
@@ -93,7 +93,7 @@ test('custom script preprocessing retains the exact prepared row object througho
   const precomputed=new Map(rows.map((row,i)=>[i,row.company_name+'（FTP）']));
   importFtpFile(state,id,'full-v1',{now:'2026-10-29T00:00:00Z',preparedRows:rows,runScript:(script,value,ctx)=>{
     const i=rows.indexOf(ctx.row);assert.ok(i>=0,'script context must use the preprocessed array');
-    if(script.id==='custom_name')return precomputed.get(i);return [...new Set(String(value??'').split('；').filter(Boolean))];
+    if(script.id==='custom_name')return precomputed.get(i);return runBuiltinScript(script,value,ctx);
   }});
   assert.match(state.records[0].enterpriseName,/（FTP）$/);assert.equal(state.records[0].lineage.enterpriseName.selected.script.id,'custom_name');
 });
