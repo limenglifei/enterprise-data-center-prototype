@@ -24,6 +24,7 @@ export function upgradeSourceState(state) {
   state.priorities ??= {};
   state.uploadRecords ??= [];
   const needsRiskExtension=Number(state.schemaVersion??0)<2.6;
+  const needsIndustryExtension=!state.industryConfigVersion;
   const defaults = createInitialState({seed:false});
   for(const provider of defaults.providers){
     if(state.providers.some(item=>item.id===provider.id))continue;
@@ -50,11 +51,20 @@ export function upgradeSourceState(state) {
   if(needsRiskExtension){
     const extensions=createDefaultFtpMappings().filter(m=>['enterprise_risk_event.published_date','enterprise_risk_event.publishing_authority'].includes(m.targetField));
     const previousDefaults=createDefaultFtpMappings().filter(m=>!extensions.some(e=>e.targetField===m.targetField));
+    const olderDefaults=[...previousDefaults.filter(m=>!m.sourceField.startsWith('industry_records[].')),{enabled:true,sourceField:'industry',targetField:LEGACY_ALIAS_MAP.industry,scriptId:''}];
     for(const provider of state.providers.filter(p=>p.type==='ftp'&&!p.retired)){
       const mappings=state.mappings[provider.id]??[];
       // Only untouched V2.5 defaults receive additional mappings. Keep every custom rule.
-      if(mappings.length===previousDefaults.length&&previousDefaults.every(d=>mappings.some(m=>m.sourceField===d.sourceField&&m.targetField===d.targetField&&(m.scriptId??'')===d.scriptId&&m.enabled!==false)))mappings.push(...copy(extensions));
+      if([previousDefaults,olderDefaults].some(defaults=>mappings.length===defaults.length&&defaults.every(d=>mappings.some(m=>m.sourceField===d.sourceField&&m.targetField===d.targetField&&(m.scriptId??'')===d.scriptId&&m.enabled!==false))))mappings.push(...copy(extensions));
     }
+  }
+  if(needsIndustryExtension){
+    const next=createDefaultFtpMappings(),previous=[...next.filter(m=>!m.sourceField.startsWith('industry_records[].')),{enabled:true,sourceField:'industry',targetField:LEGACY_ALIAS_MAP.industry,scriptId:''}];
+    for(const provider of state.providers.filter(p=>p.type==='ftp'&&!p.retired)){
+      const current=state.mappings[provider.id]??[];
+      if(current.length===previous.length&&previous.every(d=>current.some(m=>m.sourceField===d.sourceField&&m.targetField===d.targetField&&(m.scriptId??'')===d.scriptId&&m.enabled!==false)))state.mappings[provider.id]=copy(next);
+    }
+    state.industryConfigVersion=1;
   }
   for (const field of [...FIELD_DEFS,...Object.keys(state.priorities).filter(key=>!FIELD_DEFS.some(f=>f.key===key)).map(key=>({key}))]) {
     const alias=Object.entries(LEGACY_ALIAS_MAP).find(([,key])=>key===field.key)?.[0];

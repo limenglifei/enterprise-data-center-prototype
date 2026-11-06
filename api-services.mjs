@@ -1,4 +1,5 @@
 import {LEGACY_FIELD_DEFS as FIELD_DEFS,filterEnterprises,exactQuery} from './core.mjs';
+import {normalizeIndustryPath,INDUSTRY_STANDARD_VERSION} from './industry-classification.mjs';
 
 const DEFINITIONS=[
   {id:'search',kind:'search',name:'企业批量筛选',method:'POST',path:'/api/v1/enterprises/search',version:'1.0.0',description:'按地区、行业、资质、规模、产业链节点组合条件，分页返回统一企业库数据。'},
@@ -7,7 +8,7 @@ const DEFINITIONS=[
 const VALID_KINDS=['search','query'];
 const SLUG=/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const FILTER_KEYS=['regionProvince','regionCity','regionDistrict','industry','qualifications','scale','chainNodes','keyword'];
-const LABELS={regionProvince:'省份',regionCity:'城市',regionDistrict:'区县',industry:'行业',qualifications:'企业资质',scale:'企业规模',chainNodes:'产业链节点',keyword:'企业名称关键词'};
+const LABELS={regionProvince:'省份',regionCity:'城市',regionDistrict:'区县',industry:'历史行业标签（兼容，非国标代码路径）',qualifications:'企业资质',scale:'企业规模',chainNodes:'产业链节点',keyword:'企业名称关键词'};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const timestamp=()=>new Date().toISOString();
 const requestId=()=>globalThis.crypto?.randomUUID?.()||`req_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -64,7 +65,7 @@ export function normalizeApiServiceInput(id,input){
     return {keyword:input.keyword.trim()};
   }
   if(id!=='search')throw new Error('未知 API 接口');
-  if(Object.keys(input).some(k=>![...FILTER_KEYS,'page','pageSize'].includes(k)))throw new Error('包含不支持的筛选参数');
+  if(Object.keys(input).some(k=>![...FILTER_KEYS,'industryPath','page','pageSize'].includes(k)))throw new Error('包含不支持的筛选参数');
   const output={};
   for(const key of FILTER_KEYS){
     const value=input[key];
@@ -77,6 +78,7 @@ export function normalizeApiServiceInput(id,input){
     if(!Number.isSafeInteger(value)||value<1||value>max)throw new Error(`${key} 须为 1–${max} 的整数`);
     output[key]=value;
   }
+  if(input.industryPath!==undefined)output.industryPath=normalizeIndustryPath(input.industryPath);
   return output;
 }
 
@@ -118,6 +120,9 @@ export function runApiService(state,id,input,{now=timestamp(),id:callId=requestI
 
 function paramTable(service){
   const rows=service.kind==='query'?[['keyword','string','是','统一社会信用代码或完整企业名称，完全匹配']]:[
+    ['industryPath','object','否','国民经济行业路径；选择任一级包含其下属行业，与地区等条件按 AND 组合'],
+    ['industryPath.standardVersion','string','随路径必填',INDUSTRY_STANDARD_VERSION+'；按已登记版本校验'],
+    ['industryPath.codes','string[]','随路径必填','连续 1–4 级代码：一级门类、二级大类、三级中类、四级小类；例如 ["C","39","397","3974"]'],
     ...FILTER_KEYS.map(key=>[key,'string','否',LABELS[key]+(key==='keyword'?'，按名称包含匹配':'，精确匹配；多条件之间为 AND')]),
     ['page','integer','否','页码，默认 1，最大 100000'],['pageSize','integer','否','每页数量，默认 20，最大 100'],
   ];
@@ -151,7 +156,7 @@ export function renderApiServices(state,{now=Date.now()}={}){
     }).join('')}</tbody></table></div></section>`;
 }
 
-function sampleInput(state,kind){return kind==='query'?{keyword:state.records?.[0]?.creditCode||'请输入企业全称或信用代码'}:{regionProvince:'安徽省',industry:'电子信息',page:1,pageSize:20};}
+function sampleInput(state,kind){return kind==='query'?{keyword:state.records?.[0]?.creditCode||'请输入企业全称或信用代码'}:{regionProvince:'安徽省',industryPath:{standardVersion:INDUSTRY_STANDARD_VERSION,codes:['C','39','397','3974']},page:1,pageSize:20};}
 function debugDialog(state,service,showModal){
   showModal(`${service.name} · 在线调试`,`<div class="inline-notice"><span class="badge blue">演示调试</span><span>直接使用当前统一企业库执行，与服务端复用同一套筛选逻辑。发布状态与入参校验均生效。</span></div><p class="mono section-gap">${service.method} ${esc(service.path)}</p><form id="api-service-debug-form"><div class="form-field section-gap"><label>请求参数（JSON）</label><textarea name="input" class="code-editor" rows="9" spellcheck="false">${esc(JSON.stringify(sampleInput(state,service.kind),null,2))}</textarea></div></form><div id="api-service-debug-output" class="section-gap"></div>`,button('执行调试','execute-debug',service.id,'primary'),true);
 }

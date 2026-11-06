@@ -1,8 +1,8 @@
 {
   "target": "github-pages",
-  "assetVersion": "505aeb5a93bce035",
+  "assetVersion": "a0d1e5839b95b1fd",
   "storage": "IndexedDB",
   "serverApi": false,
   "source": "public/prototype",
-  "builtAt": "2026-11-05T14:50:32.457Z"
+  "builtAt": "2026-11-06T13:15:08.478Z"
 }

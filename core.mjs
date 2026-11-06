@@ -1,4 +1,5 @@
 import {DICTIONARY_FIELDS,getDictionaryField} from './enterprise-dictionary.mjs';
+import {syntheticIndustryRecord,industryPathFromFlat,matchesIndustryPath,normalizeIndustryPath} from './industry-classification.mjs';
 import {LEGACY_ALIAS_MAP,canonicalField,mapDomainRows,mergeTableRows,materializeTables,getTableRows,getTableRecords} from './enterprise-domain.mjs';
 export {LEGACY_ALIAS_MAP,getTableRows,getTableRecords};
 export const FIELD_DEFS=DICTIONARY_FIELDS;
@@ -63,16 +64,17 @@ function defaultMappings() {
 
 export function createDefaultFtpMappings(){
   const base=['company_name','credit_code','legal_person','registration_status','established_at','capital_wan','province','city','district','industry','business_scope','registered_address','qualifications','scale','chain_nodes'];
-  const mappings=LEGACY_FIELD_DEFS.filter(field=>!['qualifications','chainNodes'].includes(field.key)).map(field=>map(base[LEGACY_FIELD_DEFS.indexOf(field)],LEGACY_ALIAS_MAP[field.key],field.key==='registeredCapitalWan'?'wan_to_yuan':''));
+  const mappings=LEGACY_FIELD_DEFS.filter(field=>!['qualifications','chainNodes','industry'].includes(field.key)).map(field=>map(base[LEGACY_FIELD_DEFS.indexOf(field)],LEGACY_ALIAS_MAP[field.key],field.key==='registeredCapitalWan'?'wan_to_yuan':''));
   const modules={contacts:['enterprise_contact','contact_phone','contact_email'],annual_operations:['enterprise_annual_operation','fiscal_year','annual_revenue','employee_count'],listings:['enterprise_listing','exchange_code','stock_code','stock_name'],shareholders:['enterprise_shareholder','subject_type','subject_name','direct_ownership_percent'],qualification_records:['enterprise_qualification','qualification_type','qualification_name','certificate_no'],patents:['enterprise_patent','patent_type','patent_name','application_no'],ip_summaries:['enterprise_intellectual_property_summary','statistics_date','patent_count'],risk_events:['enterprise_risk_event','risk_type','event_title','published_date','publishing_authority'],risk_summaries:['enterprise_risk_summary','statistics_date','tax_credit_rating','litigation_count'],tags:['enterprise_tag','tag_type','tag_name','tag_code','tag_version']};
   for(const [path,[table,...fields]]of Object.entries(modules))for(const field of fields)mappings.push(map(`${path}[].${field}`,`${table}.${field}`));
+  for(const field of ['standard_version','is_primary','classification_method',...[1,2,3,4].flatMap(n=>[`industry_code_l${n}`,`industry_name_l${n}`])])mappings.push(map(`industry_records[].${field}`,`enterprise_industry.${field}`));
   return mappings;
 }
 export function createDefaultFtpProvider(id,name){return {id,name,type:'ftp',enabled:true,connectionMode:'demo',status:'demo_ready',description:'FTP / FTPS 文件接入演示；文件与企业均为虚构样例，未建立真实网络连接。',ftpConfig:{protocol:'ftps',host:'ftp.example.invalid',port:21,directory:'/enterprise',filePattern:'enterprise_*.json',username:'demo_reader',format:'json'}};}
 
 export function createInitialState({seed=true}={}) {
   const state = {
-    schemaVersion: 2.6, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
+    schemaVersion: 2.6, industryConfigVersion:1, sequence: 1, dataVersion: 1, metadata: clone(DEMO_METADATA),
     providers: [
       ...[['ftp_qcc','企查查 FTP'],['ftp_qxb','启信宝 FTP'],['ftp_tyc','天眼查 FTP']].map(([id,name])=>createDefaultFtpProvider(id,name)),
       {id:'file',name:'离线文件本地上传',type:'file',enabled:true,baseUrl:'',authType:'无需鉴权',connectionMode:'file',status:'ready',description:'补充资质、规模、产业链节点；用户自行提供授权数据。'},
@@ -99,6 +101,9 @@ export function createInitialState({seed=true}={}) {
     applyBatch(state,{sourceId:'ftp_qcc',rows,mode:'full',now:'2026-10-27T09:00:00+08:00'});
     state.mappings.ftp_qcc=canonicalMappings;
     applyBatch(state,{sourceId:'file',rows:clone(DEMO_SNAPSHOTS.file.v1),mode:'full',now:'2026-10-27T09:00:00+08:00'});
+    // Explicit fixture facts, not a migration from historical industry themes.
+    const industryRows=DEMO_COMPANIES.slice(0,24).map((company,i)=>({company_name:company.enterpriseName,credit_code:company.creditCode,industry_records:[syntheticIndustryRecord(i+1)].filter(Boolean),sourceUpdatedAt:DEMO_METADATA.baselineAt,_synthetic:true})).filter(row=>row.industry_records.length);
+    applyBatch(state,{sourceId:'ftp_qcc',rows:industryRows,mode:'full',now:'2026-10-27T09:00:00+08:00'});
   }
   return state;
 }
@@ -312,12 +317,13 @@ function matchesChoice(value,filter) {
 /** AND between dimensions; OR within a multi-selected dimension. */
 export function filterEnterprises(state,filters={}) {
   const f={...DEFAULT_FILTERS,...filters};
+  const industryPath=f.industryPath?normalizeIndustryPath(f.industryPath):industryPathFromFlat(f);
   const region=f.regionProvince || f.province || f.region || '';
   const qualifications=f.qualifications || f.qualification || '';
   const nodes=f.chainNodes || f.chainNode || '';
   return state.records.filter(r =>
     matchesChoice(r.regionProvince,region) && matchesChoice(r.regionCity,f.regionCity||f.city||'') && matchesChoice(r.regionDistrict,f.regionDistrict||f.district||'') &&
-    matchesChoice(r.industry,f.industry) && matchesChoice(r.qualifications,qualifications) && matchesChoice(r.scale,f.scale) && matchesChoice(r.chainNodes,nodes) &&
+    matchesChoice(r.industry,f.industry) && (!industryPath||matchesIndustryPath(r,industryPath)) && matchesChoice(r.qualifications,qualifications) && matchesChoice(r.scale,f.scale) && matchesChoice(r.chainNodes,nodes) &&
     (!f.keyword || String(r.enterpriseName).includes(String(f.keyword).trim()))
   );
 }
