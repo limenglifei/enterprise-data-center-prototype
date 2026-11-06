@@ -138,5 +138,5 @@ test('persisted snapshots survive JSON round trip and safe record keys do not mo
 
 test('rendered subscription catalog escapes user text and explains simulated scheduling and precise matching boundaries',()=>{
   const {state,service}=ready();service.name='<img src=x onerror=alert(1)>';service.webhookUrl='https://example.com/?x="<script>';
-  const html=renderSubscriptions(state);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img src=x/);assert.match(html,/不会发送网络请求/);assert.match(html,/国民经济行业/);assert.match(html,/荣誉资质/);assert.match(html,/自动调度/);assert.match(html,/data-action="subscription-create"/);assert.match(html,/data-action="subscription-simulate"/);assert.match(html,/未接入官方/);
+  const html=renderSubscriptions(state);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img src=x/);assert.match(html,/不会发送网络请求/);assert.match(html,/国民经济行业/);assert.match(html,/荣誉资质/);assert.match(html,/自动调度/);assert.match(html,/data-action="subscription-create"/);assert.match(html,/data-action="subscription-simulate"/);assert.match(html,/一级门类、二级大类、三级中类、四级小类/);
 });

@@ -1,4 +1,6 @@
 import {publicEnterprise} from './api-services.mjs';
+import {normalizeIndustryPath as validateIndustryPath,matchesIndustryPath as domainMatchesIndustryPath} from './industry-classification.mjs';
+import {INDUSTRY_STANDARD_VERSION,INDUSTRY_LEVEL_LABELS,industryChildren,normalizeIndustryPath,formatIndustryPaths} from './industry-classification.mjs';
 
 export const SUBSCRIPTION_LIMITS=Object.freeze({services:20,records:100,deliveries:20,attempts:10,batchBytes:64*1024});
 const FREQUENCIES={manual:'手动',hourly:'每小时',daily:'每天',weekly:'每周'};
@@ -37,7 +39,11 @@ export function validateSubscriptionConfig(config){
     }
     const regions=config.filters.regions;
     if(!Array.isArray(regions)||regions.length>50||regions.some(region=>!region||typeof region!=='object'||Array.isArray(region)||!['province','city','district'].every(key=>typeof region[key]==='string'&&region[key].length<=100)||!region.province.trim()||(region.district&&!region.city)))errors.push('注册地区最多选择 50 项，需使用完整省、市、区路径');
-    if(Object.keys(config.filters).some(key=>!['industries','regions','qualifications'].includes(key)))errors.push('包含不支持的订阅条件');
+    if(config.filters.industryPaths!==undefined){
+      const paths=config.filters.industryPaths;if(!Array.isArray(paths)||paths.length>50)errors.push('国民经济行业最多选择50个完整路径');
+      else for(const path of paths){try{validateIndustryPath(path);}catch(error){errors.push(error.message);}}
+    }
+    if(Object.keys(config.filters).some(key=>!['industries','industryPaths','regions','qualifications'].includes(key)))errors.push('包含不支持的订阅条件');
   }
   return {valid:errors.length===0,errors};
 }
@@ -46,7 +52,7 @@ function normalizedConfig(input){
   const candidate={name:input?.name,description:input?.description??'',webhookUrl:input?.webhookUrl,frequency:input?.frequency,mode:input?.mode,filters:input?.filters};
   const validation=validateSubscriptionConfig(candidate);
   if(!validation.valid)throw new Error(validation.errors.join('；'));
-  return {...candidate,name:candidate.name.trim(),description:candidate.description.trim(),webhookUrl:candidate.webhookUrl.trim(),filters:{industries:[...new Set(candidate.filters.industries.map(value=>value.trim()))],regions:[...new Map(candidate.filters.regions.map(region=>{const value=Object.fromEntries(['province','city','district'].map(key=>[key,region[key].trim()]));return [regionKey(value),value];})).values()],qualifications:[...new Set(candidate.filters.qualifications.map(value=>value.trim()))]}};
+  return {...candidate,name:candidate.name.trim(),description:candidate.description.trim(),webhookUrl:candidate.webhookUrl.trim(),filters:{industries:[...new Set(candidate.filters.industries.map(value=>value.trim()))],...(candidate.filters.industryPaths!==undefined?{industryPaths:[...new Map(candidate.filters.industryPaths.map(p=>{const path=validateIndustryPath(p);return [JSON.stringify(path),path];})).values()]}:{}),regions:[...new Map(candidate.filters.regions.map(region=>{const value=Object.fromEntries(['province','city','district'].map(key=>[key,region[key].trim()]));return [regionKey(value),value];})).values()],qualifications:[...new Set(candidate.filters.qualifications.map(value=>value.trim()))]}};
 }
 
 export function createSubscription(state,input,{id=uid(),now=stamp()}={}){
@@ -78,7 +84,8 @@ export function pauseSubscription(state,id,{now=stamp()}={}){
 }
 
 function matches(record,filters){
-  return (!filters.industries.length||filters.industries.includes(record.industry))&&(!filters.regions.length||filters.regions.some(region=>record.regionProvince===region.province&&(!region.city||record.regionCity===region.city)&&(!region.district||record.regionDistrict===region.district)))&&(!filters.qualifications.length||filters.qualifications.some(value=>(record.qualifications||[]).includes(value)));
+  const paths=filters.industryPaths??[],industryMatch=(!filters.industries.length&&!paths.length)||filters.industries.includes(record.industry)||paths.some(path=>domainMatchesIndustryPath(record,path));
+  return industryMatch&&(!filters.regions.length||filters.regions.some(region=>record.regionProvince===region.province&&(!region.city||record.regionCity===region.city)&&(!region.district||record.regionDistrict===region.district)))&&(!filters.qualifications.length||filters.qualifications.some(value=>(record.qualifications||[]).includes(value)));
 }
 
 export function previewSubscription(state,serviceOrId){
@@ -162,9 +169,25 @@ export function retrySubscriptionDelivery(state,deliveryId,{now=stamp(),fail=fal
   return {status:delivery.status,delivery,message:fail?'模拟重试失败，增量基线保持不变':'模拟重试成功，沿用原 eventId 并提交该批次快照'};
 }
 
+let subscriptionEditor=null;
+function industryPathLabel(state,path){
+  const names=path.codes.map((code,i)=>industryChildren(state.records||[],path.codes.slice(0,i)).find(option=>option.value===code)?.label||code);
+  return names.join(' / ');
+}
+function subscriptionIndustryFields(state){
+  const editor=subscriptionEditor,codes=editor.pendingCodes;
+  return `<fieldset class="industry-filter-section subscription-industry-editor"><legend>国民经济行业 <span class="subtle">${esc(INDUSTRY_STANDARD_VERSION)}</span></legend><div class="industry-level-grid">${INDUSTRY_LEVEL_LABELS.map((label,i)=>`<div class="form-field"><label for="subscription-industry-l${i+1}">${esc(label)}</label><select id="subscription-industry-l${i+1}" data-subscription-industry-level="${i+1}" ${i&&!codes[i-1]?'disabled':''}><option value="">全部${label.slice(2)}</option>${(i&&!codes[i-1]?[]:industryChildren(state.records||[],codes.slice(0,i))).map(option=>`<option value="${esc(option.value)}" ${codes[i]===option.value?'selected':''}>${esc(option.label)}</option>`).join('')}</select></div>`).join('')}</div><div class="industry-condition-actions">${button('添加行业条件','industry-add',editor.id,'secondary','type="button"')}${button('清空当前选择','industry-clear-pending',editor.id,'ghost','type="button"')}</div><p class="subtle">可选到任一级后添加，包含该级下属行业；多个行业条件满足任一条即可。候选来自企业库已采集有效路径。</p><div class="subscription-industry-conditions">${editor.paths.length?editor.paths.map((path,index)=>`<div class="subscription-industry-condition"><span>${esc(industryPathLabel(state,path))}</span>${button('移除','industry-remove',editor.id,'ghost small',`type="button" data-index="${index}"`)}</div>`).join(''):'<p class="subtle">尚未添加国民经济行业条件</p>'}</div>${editor.legacyIndustries.length?`<div class="legacy-industry-conditions"><strong>历史主题行业条件</strong><p>${editor.legacyIndustries.map(esc).join('、')}</p><p class="subtle">保留原主题条件参与行业维度 OR 匹配，不自动转换为国民经济行业代码。可明确移除后按国标条件订阅。</p>${button('移除历史行业条件','industry-remove-legacy',editor.id,'ghost','type="button"')}</div>`:''}</fieldset>`;
+}
+function renderSubscriptionIndustryFields(state){const host=document.querySelector('#subscription-industry-panel');if(host)host.innerHTML=subscriptionIndustryFields(state);}
+export function handleSubscriptionFormEvent(event,{getState}={}){
+  const level=Number(event.target.dataset?.subscriptionIndustryLevel);if(!level||!subscriptionEditor||event.type!=='change')return false;
+  const codes=subscriptionEditor.pendingCodes.slice(0,level-1);if(event.target.value)codes.push(event.target.value);
+  subscriptionEditor.pendingCodes=codes;renderSubscriptionIndustryFields(getState());document.querySelector(`#subscription-industry-l${level}`)?.focus({preventScroll:true});return true;
+}
 function conditionText(service){
   const filters=service.filters||{},parts=[];
-  if(filters.industries?.length)parts.push(`行业：${filters.industries.join('、')}`);
+  if(filters.industryPaths?.length)parts.push(`国民经济行业：${filters.industryPaths.map(path=>path.codes.join(' / ')).join('；')}`);
+  if(filters.industries?.length)parts.push(`历史主题行业：${filters.industries.join('、')}`);
   if(filters.regions?.length)parts.push(`地区：${filters.regions.map(regionLabel).join('；')}`);
   if(filters.qualifications?.length)parts.push(`荣誉资质：${filters.qualifications.join('、')}`);
   return parts.join('；')||'全部企业（未限制条件）';
@@ -176,7 +199,7 @@ export function renderSubscriptions(state){
   return `<div class="inline-notice"><span class="badge blue">批量订阅推送</span><span>按国民经济行业、注册地区、荣誉资质组合订阅统一企业数据。同维度多选为 OR，跨维度为 AND；空维度不限。当前仅模拟 Webhook 投递，不会发送网络请求；自动定时、签名鉴权与接收端幂等需由服务端实现。</span></div><div class="stats-grid"><div class="stat-card"><div class="stat-label">批量订阅推送服务</div><div class="stat-value">${state.subscriptions.length}<span>个</span></div><div class="stat-footer">上限 ${SUBSCRIPTION_LIMITS.services} 个</div></div><div class="stat-card"><div class="stat-label">已发布</div><div class="stat-value">${published}<span>个</span></div><div class="stat-footer">支持手动模拟投递</div></div><div class="stat-card"><div class="stat-label">成功投递</div><div class="stat-value">${state.subscriptionDeliveries.filter(delivery=>delivery.status==='success').length}<span>次</span></div><div class="stat-footer">基于保留的模拟记录</div></div><div class="stat-card"><div class="stat-label">失败批次</div><div class="stat-value">${state.subscriptionDeliveries.filter(delivery=>delivery.status==='failed').length}<span>个</span></div><div class="stat-footer">失败不推进增量快照</div></div></div><section class="card section-gap"><div class="card-header"><div><h2>批量订阅推送服务</h2><p class="subtle">增量首次投递建立全量基线；之后发送新增、字段变化和移出订阅范围事件。配置修改后需重新发布并建立基线。</p></div>${button('新增批量订阅推送服务','create','','primary')}</div>${state.subscriptions.length?`<div class="table-wrap"><table><thead><tr><th>订阅名称 / 条件</th><th>Webhook 目标</th><th>方式 / 频率</th><th>状态</th><th>最近投递</th><th>操作</th></tr></thead><tbody>${state.subscriptions.map(service=>{
     const last=state.subscriptionDeliveries.find(delivery=>delivery.subscriptionId===service.id);
     return `<tr><td><strong>${esc(service.name)}</strong><p class="subtle" style="max-width:300px">${esc(conditionText(service))}</p></td><td class="mono" style="max-width:220px;overflow-wrap:anywhere">${esc(service.webhookUrl)}</td><td>${service.mode==='full'?'全量':'增量'}<p class="subtle">${esc(FREQUENCIES[service.frequency]||service.frequency)} · 自动调度待服务端</p></td><td><span class="badge ${service.status==='published'?'success':service.status==='paused'?'neutral':'warning'}">${esc(STATUSES[service.status]||service.status)}</span><p class="subtle">配置 v${esc(service.revision)}</p></td><td>${last?`<span class="badge ${last.status==='success'?'success':'warning'}">${last.status==='success'?'模拟成功':'模拟失败'}</span><p class="subtle">${when(last.updatedAt)}</p>`:'暂无投递'}</td><td><div class="button-group" style="display:flex;flex-wrap:wrap;gap:6px;min-width:200px">${button('配置','edit',service.id)}${button('预览企业','preview',service.id)}${button('投递记录','history',service.id)}${service.status==='published'?`${button('模拟推送','simulate',service.id,'primary')}${button('暂停','pause',service.id)}`:button('发布','publish',service.id,'primary')}</div></td></tr>`;
-  }).join('')}</tbody></table></div>`:`<div class="empty-state"><h3>暂无批量订阅推送服务</h3><p>配置行业、注册地区和荣誉资质，发布后预览匹配企业并模拟 Webhook 推送。</p>${button('新增批量订阅推送服务','create','','primary')}</div>`}</section><p class="subtle section-gap">原型每批最多 ${SUBSCRIPTION_LIMITS.records} 条变更、64 KiB，保留最近 ${SUBSCRIPTION_LIMITS.deliveries} 个投递批次。同数据重复模拟会跳过；失败重试复用 eventId。行业值来自当前统一企业库，未接入官方国民经济行业编码字典。</p>`;
+  }).join('')}</tbody></table></div>`:`<div class="empty-state"><h3>暂无批量订阅推送服务</h3><p>配置行业、注册地区和荣誉资质，发布后预览匹配企业并模拟 Webhook 推送。</p>${button('新增批量订阅推送服务','create','','primary')}</div>`}</section><p class="subtle section-gap">原型每批最多 ${SUBSCRIPTION_LIMITS.records} 条变更、64 KiB，保留最近 ${SUBSCRIPTION_LIMITS.deliveries} 个投递批次。同数据重复模拟会跳过；失败重试复用 eventId。国民经济行业按一级门类、二级大类、三级中类、四级小类配置，使用代码路径与标准版本；候选来自库内有效路径。</p>`;
 }
 
 function availableRegions(records){
@@ -193,22 +216,23 @@ function availableRegions(records){
 
 function configureDialog(state,service,showModal){
   const config=service||{name:'',description:'',webhookUrl:'https://example.com/webhooks/enterprise',frequency:'daily',mode:'incremental',filters:{industries:[],regions:[],qualifications:[]}};
-  const industries=[...new Set([...(state.records||[]).map(record=>record.industry).filter(Boolean),...config.filters.industries])].sort();
+  subscriptionEditor={id:service?.id||'',paths:clone(config.filters.industryPaths||[]),pendingCodes:[],legacyIndustries:[...(config.filters.industries||[])]};
   const qualifications=[...new Set([...(state.records||[]).flatMap(record=>record.qualifications||[]),...config.filters.qualifications])].sort();
   const regions=availableRegions(state.records||[]);for(const region of config.filters.regions)regions.set(regionKey(region),region);
   const selectedRegions=new Set(config.filters.regions.map(regionKey));
   const options=(values,selected)=>values.map(value=>`<option value="${esc(value)}" ${selected.includes(value)?'selected':''}>${esc(value)}</option>`).join('');
-  showModal(service?'配置批量订阅推送服务':'新增批量订阅推送服务',`<form id="subscription-config-form" class="form-grid"><div class="form-field full"><label for="subscription-name">订阅名称</label><input id="subscription-name" name="name" maxlength="60" value="${esc(config.name)}" placeholder="例如：合肥高新技术企业数据订阅" required></div><div class="form-field full"><label for="subscription-webhook">Webhook 目标地址</label><input id="subscription-webhook" name="webhookUrl" type="url" maxlength="1000" value="${esc(config.webhookUrl)}" required><small>仅支持 HTTPS，禁止在地址中放入账号密码。example.com 为演示占位地址，当前不会真实调用。</small></div><div class="form-field"><label for="subscription-mode">推送方式</label><select id="subscription-mode" name="mode"><option value="incremental" ${config.mode==='incremental'?'selected':''}>增量：首次全量，后续推送变更</option><option value="full" ${config.mode==='full'?'selected':''}>全量：推送全部匹配企业</option></select></div><div class="form-field"><label for="subscription-frequency">推送频率</label><select id="subscription-frequency" name="frequency">${Object.entries(FREQUENCIES).map(([value,label])=>`<option value="${value}" ${config.frequency===value?'selected':''}>${label}</option>`).join('')}</select><small>保存调度配置；原型仅通过按钮手动模拟，生产自动调度由服务端执行。</small></div><div class="form-field"><label for="subscription-industries">国民经济行业（可多选）</label><select id="subscription-industries" name="industries" multiple size="5">${options(industries,config.filters.industries)}</select><small>库内行业值精确匹配；未接入官方编码字典。</small></div><div class="form-field"><label for="subscription-regions">注册地区（可多选）</label><select id="subscription-regions" name="regions" multiple size="5">${[...regions.values()].sort((a,b)=>regionLabel(a).localeCompare(regionLabel(b),'zh-CN')).map(region=>`<option value="${esc(regionKey(region))}" ${selectedRegions.has(regionKey(region))?'selected':''}>${esc(regionLabel(region))}</option>`).join('')}</select><small>支持省、市、区层级；选择省级项覆盖该省下属市区。</small></div><div class="form-field full"><label for="subscription-qualifications">荣誉资质（可多选）</label><select id="subscription-qualifications" name="qualifications" multiple size="4">${options(qualifications,config.filters.qualifications)}</select><small>按住 Ctrl / Command 多选或取消选择。同一维度任一值满足即可，不同维度同时满足；所有维度未选表示全部企业。</small></div><div class="form-field full"><label for="subscription-description">服务说明</label><textarea id="subscription-description" name="description" maxlength="500" rows="2">${esc(config.description)}</textarea></div></form><div class="inline-notice section-gap"><span>${service?'保存修改后恢复草稿，原快照清空；重新发布后的首次投递建立新基线。':'新建后为草稿，需发布后才能模拟推送。'} 失败不推进快照；重试复用事件 ID。自动调度、签名、接收端鉴权均需服务端实现。</span></div>`,button(service?'保存配置':'创建批量订阅',service?'save':'save-new',service?.id||'','primary'),true);
+  showModal(service?'配置批量订阅推送服务':'新增批量订阅推送服务',`<form id="subscription-config-form" class="form-grid"><div class="form-field full"><label for="subscription-name">订阅名称</label><input id="subscription-name" name="name" maxlength="60" value="${esc(config.name)}" placeholder="例如：合肥高新技术企业数据订阅" required></div><div class="form-field full"><label for="subscription-webhook">Webhook 目标地址</label><input id="subscription-webhook" name="webhookUrl" type="url" maxlength="1000" value="${esc(config.webhookUrl)}" required><small>仅支持 HTTPS，禁止在地址中放入账号密码。example.com 为演示占位地址，当前不会真实调用。</small></div><div class="form-field"><label for="subscription-mode">推送方式</label><select id="subscription-mode" name="mode"><option value="incremental" ${config.mode==='incremental'?'selected':''}>增量：首次全量，后续推送变更</option><option value="full" ${config.mode==='full'?'selected':''}>全量：推送全部匹配企业</option></select></div><div class="form-field"><label for="subscription-frequency">推送频率</label><select id="subscription-frequency" name="frequency">${Object.entries(FREQUENCIES).map(([value,label])=>`<option value="${value}" ${config.frequency===value?'selected':''}>${label}</option>`).join('')}</select><small>保存调度配置；原型仅通过按钮手动模拟，生产自动调度由服务端执行。</small></div><div class="form-field full" id="subscription-industry-panel">${subscriptionIndustryFields(state)}</div><div class="form-field"><label for="subscription-regions">注册地区（可多选）</label><select id="subscription-regions" name="regions" multiple size="5">${[...regions.values()].sort((a,b)=>regionLabel(a).localeCompare(regionLabel(b),'zh-CN')).map(region=>`<option value="${esc(regionKey(region))}" ${selectedRegions.has(regionKey(region))?'selected':''}>${esc(regionLabel(region))}</option>`).join('')}</select><small>支持省、市、区层级；选择省级项覆盖该省下属市区。</small></div><div class="form-field full"><label for="subscription-qualifications">荣誉资质（可多选）</label><select id="subscription-qualifications" name="qualifications" multiple size="4">${options(qualifications,config.filters.qualifications)}</select><small>按住 Ctrl / Command 多选或取消选择。同一维度任一值满足即可，不同维度同时满足；所有维度未选表示全部企业。</small></div><div class="form-field full"><label for="subscription-description">服务说明</label><textarea id="subscription-description" name="description" maxlength="500" rows="2">${esc(config.description)}</textarea></div></form><div class="inline-notice section-gap"><span>${service?'保存修改后恢复草稿，原快照清空；重新发布后的首次投递建立新基线。':'新建后为草稿，需发布后才能模拟推送。'} 失败不推进快照；重试复用事件 ID。自动调度、签名、接收端鉴权均需服务端实现。</span></div>`,button(service?'保存配置':'创建批量订阅',service?'save':'save-new',service?.id||'','primary'),true);
 }
 
 function readForm(){
+  if(subscriptionEditor?.pendingCodes.length)throw new Error('请先添加当前行业条件，或清空当前选择后保存');
   const form=new FormData(document.querySelector('#subscription-config-form'));
-  return {name:String(form.get('name')||''),description:String(form.get('description')||''),webhookUrl:String(form.get('webhookUrl')||'').trim(),mode:form.get('mode'),frequency:form.get('frequency'),filters:{industries:form.getAll('industries'),regions:form.getAll('regions').map(regionFromKey),qualifications:form.getAll('qualifications')}};
+  return {name:String(form.get('name')||''),description:String(form.get('description')||''),webhookUrl:String(form.get('webhookUrl')||'').trim(),mode:form.get('mode'),frequency:form.get('frequency'),filters:{industries:[...(subscriptionEditor?.legacyIndustries||[])],industryPaths:clone(subscriptionEditor?.paths||[]),regions:form.getAll('regions').map(regionFromKey),qualifications:form.getAll('qualifications')}};
 }
 
 function previewDialog(state,service,showModal){
   const records=previewSubscription(state,service);
-  showModal(`${service.name} · 匹配企业预览`,`<div class="inline-notice"><span>匹配 ${records.length} 家企业；同维 OR、跨维 AND。${esc(conditionText(service))}</span></div>${records.length?`<div class="table-wrap section-gap"><table><thead><tr><th>企业名称 / 信用代码</th><th>行业</th><th>注册地区</th><th>荣誉资质</th></tr></thead><tbody>${records.slice(0,20).map(record=>`<tr><td><strong>${esc(record.enterpriseName)}</strong><p class="mono subtle">${esc(record.creditCode)}</p></td><td>${esc(record.industry||'—')}</td><td>${esc([record.regionProvince,record.regionCity,record.regionDistrict].filter(Boolean).join(' / '))}</td><td>${esc((record.qualifications||[]).join('、')||'—')}</td></tr>`).join('')}</tbody></table></div><p class="subtle section-gap">预览最多展示前 20 家；原型单批上限 100 条变更、64 KiB。</p>`:'<div class="empty-state"><h3>暂无匹配企业</h3><p>调整订阅条件，或先在上游接入并入库数据。</p></div>'}<h3 class="section-gap">推送规则</h3><p class="subtle">${service.mode==='incremental'?'首次成功建立全量基线，后续只推送新增、实质字段变化和移出范围的企业。':'每次数据发生变化时推送当前全部匹配企业。'} 相同数据重复模拟会跳过，不新增记录；仅更新时间或多值字段顺序变化不视为数据变化。生产全量周期投递需由服务端按批次执行。</p>`,service.status==='published'?`${button('模拟失败','simulate-failure',service.id,'secondary')}${button('模拟推送','simulate',service.id,'primary')}`:button('发布批量订阅','publish',service.id,'primary'),true);
+  showModal(`${service.name} · 匹配企业预览`,`<div class="inline-notice"><span>匹配 ${records.length} 家企业；同维 OR、跨维 AND。${esc(conditionText(service))}</span></div>${records.length?`<div class="table-wrap section-gap"><table><thead><tr><th>企业名称 / 信用代码</th><th>行业</th><th>注册地区</th><th>荣誉资质</th></tr></thead><tbody>${records.slice(0,20).map(record=>`<tr><td><strong>${esc(record.enterpriseName)}</strong><p class="mono subtle">${esc(record.creditCode)}</p></td><td>${esc(formatIndustryPaths((state.records||[]).find(row=>row.id===record.enterpriseId)||{}))}</td><td>${esc([record.regionProvince,record.regionCity,record.regionDistrict].filter(Boolean).join(' / '))}</td><td>${esc((record.qualifications||[]).join('、')||'—')}</td></tr>`).join('')}</tbody></table></div><p class="subtle section-gap">预览最多展示前 20 家；原型单批上限 100 条变更、64 KiB。</p>`:'<div class="empty-state"><h3>暂无匹配企业</h3><p>调整订阅条件，或先在上游接入并入库数据。</p></div>'}<h3 class="section-gap">推送规则</h3><p class="subtle">${service.mode==='incremental'?'首次成功建立全量基线，后续只推送新增、实质字段变化和移出范围的企业。':'每次数据发生变化时推送当前全部匹配企业。'} 相同数据重复模拟会跳过，不新增记录；仅更新时间或多值字段顺序变化不视为数据变化。生产全量周期投递需由服务端按批次执行。</p>`,service.status==='published'?`${button('模拟失败','simulate-failure',service.id,'secondary')}${button('模拟推送','simulate',service.id,'primary')}`:button('发布批量订阅','publish',service.id,'primary'),true);
 }
 
 function historyDialog(state,service,showModal){
@@ -222,6 +246,24 @@ function deliveryDialog(delivery,showModal){
 
 export async function handleSubscriptionAction(action,element,{getState,mutate,toast,showModal,closeModal}){
   const operation=action.replace(/^subscription-/,''),state=upgradeSubscriptions(getState()),id=element.dataset.id;
+  if(operation.startsWith('industry-')){
+    if(!subscriptionEditor){toast('请先打开订阅配置','error');return;}
+    try{
+      if(operation==='industry-add'){
+        if(!subscriptionEditor.pendingCodes.length)throw new Error('请至少选择一级门类后添加行业条件');
+        const normalized=normalizeIndustryPath({standardVersion:INDUSTRY_STANDARD_VERSION,codes:subscriptionEditor.pendingCodes});
+        const path={standardVersion:normalized.standardVersion,codes:[...normalized.codes]};
+        if(subscriptionEditor.paths.some(item=>JSON.stringify(item.codes)===JSON.stringify(path.codes)))throw new Error('该行业条件已添加');
+        if(subscriptionEditor.paths.length>=50)throw new Error('最多添加50条行业条件');
+        subscriptionEditor.paths.push(path);subscriptionEditor.pendingCodes=[];
+      }else if(operation==='industry-remove'){
+        const index=Number(element.dataset.index);if(!Number.isInteger(index)||index<0||index>=subscriptionEditor.paths.length)throw new Error('行业条件不存在');subscriptionEditor.paths.splice(index,1);
+      }else if(operation==='industry-clear-pending')subscriptionEditor.pendingCodes=[];
+      else if(operation==='industry-remove-legacy')subscriptionEditor.legacyIndustries=[];
+      renderSubscriptionIndustryFields(state);
+    }catch(error){toast(error.message,'error');}
+    return;
+  }
   if(operation==='create'){configureDialog(state,null,showModal);return;}
   if(operation==='save-new'||operation==='save'){
     let input;

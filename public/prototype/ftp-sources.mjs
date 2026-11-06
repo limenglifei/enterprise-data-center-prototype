@@ -1,6 +1,7 @@
 import {FIELD_DEFS,LEGACY_FIELD_DEFS,LEGACY_ALIAS_MAP,createDefaultFtpMappings,applyBatch,validateMappings} from './core.mjs';
 import {DICTIONARY_TABLES,getTableFields,getDictionaryField} from './enterprise-dictionary.mjs';
 import {DEMO_COMPANIES,DEMO_METADATA} from './demo-data.mjs';
+import {syntheticIndustryRecord} from './industry-classification.mjs';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const copy=v=>JSON.parse(JSON.stringify(v));
@@ -57,7 +58,7 @@ export function upgradeFtpSources(state){
 function demoRow(company,updatedAt){
   const values=LEGACY_FIELD_DEFS.map(f=>f.type==='array'?(company[f.key]||[]).join('；'):company[f.key]);
   const number=Number(company.creditCode.match(/(\d+)$/)?.[1]||1),suffix=String(number).padStart(6,'0');
-  return {...Object.fromEntries(SOURCE_FIELDS.map((field,i)=>[field,values[i]])),
+  return {...Object.fromEntries(SOURCE_FIELDS.map((field,i)=>[field,values[i]])),industry_records:[syntheticIndustryRecord(number)].filter(Boolean),
     contacts:[{contact_phone:`0551-DEMO-${suffix}`,contact_email:`demo${number}@example.invalid`},{contact_phone:`DEMO-MOBILE-${suffix}`,contact_email:`office${number}@example.invalid`}],
     shareholders:[{subject_type:'企业',subject_name:`演示投资企业${number}号`,direct_ownership_percent:60},{subject_type:'自然人',subject_name:`演示股东${number}号`,direct_ownership_percent:40}],
     annual_operations:[{fiscal_year:2024,annual_revenue:12000000+number*1000,employee_count:80+number},{fiscal_year:2025,annual_revenue:15000000+number*1000,employee_count:90+number}],

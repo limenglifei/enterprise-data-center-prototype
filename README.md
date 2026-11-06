@@ -6,7 +6,11 @@
 
 公开演示：[GitHub Pages](https://limenglifei.github.io/enterprise-data-center-prototype/) · 完整源码：[GitHub 仓库](https://github.com/limenglifei/enterprise-data-center-prototype)。
 
-产品文档：[V2.7 产品需求文档](docs/enterprise-data-center-prd-v2.7.docx)。
+产品文档：[V2.8 精简版产品需求文档](docs/enterprise-data-center-prd-v2.8.docx)。
+
+国民经济行业按一级门类、二级大类、三级中类、四级小类（`GB/T 4754-2017`）展示代码、名称和标准版本。存储列表可停在任一级筛选，该级包含下属行业；上级变化清空下级，候选来自完整企业库已采集的有效路径。关键词、地区、行业保持草稿，搜索或 Enter 统一提交，重置清空全部。批量订阅通过四级选择添加多条行业路径，同一行业维度为 OR，与注册地区、荣誉资质按 AND 组合。旧主题行业条件作为历史条件保留并明确显示，可由用户显式移除；不会将“电子信息”“新能源”等主题标签自动转换为国标代码。
+
+当前原型登记了五条经过核验的四级行业示例路径，并非全国行业全量目录；未登记代码会被拒绝。扩展真实行业范围时应先按标准版本登记代码路径与名称。标准 API 新增可选 industryPath 条件，原 industry 字符串保留为历史标签兼容筛选，公开返回字段不变。
 
 本项目提供两种运行方式：
 

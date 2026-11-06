@@ -5,11 +5,12 @@ import {runInNewContext} from 'node:vm';
 import {createInitialState,getTableRecords} from '../public/prototype/core.mjs';
 import {DICTIONARY_TABLES,getTableFields} from '../public/prototype/enterprise-dictionary.mjs';
 import {upgradeFtpSources,importFtpFile} from '../public/prototype/ftp-sources.mjs';
+import {formatIndustryPaths} from '../public/prototype/industry-classification.mjs';
 
 const app=await readFile(new URL('../public/prototype/app.js',import.meta.url),'utf8');
 const helpers=app.slice(app.indexOf('function detailSectionId('),app.indexOf('\nfunction taskDetail('));
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
-function uiContext(state,extra={}){return {state,DICTIONARY_TABLES,getTableFields,getTableRecords,esc,format:value=>value==null||value===''?'—':Array.isArray(value)?value.join('、'):String(value),date:String,badge:(text)=>`<span class="badge">${esc(text)}</span>`,sourceName:id=>state.providers.find(provider=>provider.id===id)?.name||id,detailModule:'enterprise',...extra};}
+function uiContext(state,extra={}){return {state,DICTIONARY_TABLES,getTableFields,getTableRecords,formatIndustryPaths,esc,format:value=>value==null||value===''?'—':Array.isArray(value)?value.join('、'):String(value),date:String,badge:(text)=>`<span class="badge">${esc(text)}</span>`,sourceName:id=>state.providers.find(provider=>provider.id===id)?.name||id,detailModule:'enterprise',...extra};}
 
 test('enterprise dossier renders thirteen continuous modules and every independent record vertically',()=>{
  const state=upgradeFtpSources(createInitialState({seed:false}));importFtpFile(state,'ftp_qcc','full-v1',{mode:'full',now:'2026-11-05T00:00:00Z'});
